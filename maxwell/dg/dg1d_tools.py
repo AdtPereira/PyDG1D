@@ -566,8 +566,6 @@ def node_indices(N):
     return nId.astype(int)
 
 
-
-
 def splitInBlocks(A, blockSize):
     nBlocks = tuple (int(dim / blockSize) for dim in A.shape)
     
@@ -578,6 +576,7 @@ def splitInBlocks(A, blockSize):
         for j in np.arange(nBlocks[1]):
             res[i][j] = blocks[j]
     return res
+
 
 def assembleBlocks(blocks):
     rowBlocks = [np.concatenate(blocks[i], 1) for i in range(len(blocks))]

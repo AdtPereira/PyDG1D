@@ -10,11 +10,9 @@ class DG1D(SpatialDiscretization):
         SpatialDiscretization.__init__(self, mesh)
         
         assert n_order > 0
-        self.n_order = n_order
-        
+        self.n_order = n_order        
         assert fluxType == "Upwind" or fluxType == "Centered"
         self.fluxType = fluxType       
-
         self.n_faces = 2
         self.n_fp = 1   
 
@@ -40,7 +38,6 @@ class DG1D(SpatialDiscretization):
         
         
         self.mu = np.ones(mesh.number_of_elements())
-
         self.x = nodes_coordinates(n_order, mesh.EToV, mesh.vx)
         self.nx = normals(mesh.number_of_elements())
 
@@ -48,12 +45,12 @@ class DG1D(SpatialDiscretization):
         self.vmap_m, self.vmap_p, self.vmap_b, self.map_b = build_maps(
             n_order, self.x, etoe, etof)
 
-        r = jacobiGL(alpha, beta, n_order)
-        self.fmask, self.fmask_1, self.fmask_2 = buildFMask(r)
+        self.r = jacobiGL(alpha, beta, n_order)
+        self.fmask, self.fmask_1, self.fmask_2 = buildFMask(self.r)
 
-        self.mass = mass_matrix(n_order, r)
-        self.lift = surface_integral_dg(n_order, r)
-        self.diff_matrix = differentiation_matrix(n_order, r)
+        self.mass = mass_matrix(n_order, self.r)
+        self.lift = surface_integral_dg(n_order, self.r)
+        self.diff_matrix = differentiation_matrix(n_order, self.r)
 
         self.rx, self.jacobian = geometric_factors(self.x, self.diff_matrix)
         self.f_scale = 1/self.jacobian[self.fmask]
@@ -191,7 +188,6 @@ class DG1D(SpatialDiscretization):
                             np.matmul(self.lift, self.f_scale * flux_H))
         
         return rhsH
-
 
     def computeRHS(self, fields):
         rhsE = self.computeRHSE(fields)

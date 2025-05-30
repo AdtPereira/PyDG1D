@@ -6,6 +6,8 @@ class Mesh1D:
         assert k_elem > 0
         _, vx, _, EToV = mesh_generator(xmin, xmax, k_elem)
 
+        self.xmin = xmin
+        self.xmax = xmax
         self.dimension = 1
         self.vx = vx
         self.EToV = EToV
