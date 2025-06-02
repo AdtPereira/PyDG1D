@@ -4,12 +4,19 @@ formatação de saídas e comparação com resultados do MATLAB.
 """
 
 import os
+import sys
+
+# Adiciona a raiz do projeto ao PYTHONPATH
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from scipy.io import loadmat
 
 # Configurações do matplotlib
 np.set_printoptions(precision=4, suppress=True)
+
 
 def clear_terminal() -> None:
     """Limpa o terminal para melhor visualização."""
@@ -70,7 +77,7 @@ def compare_with_matlab(uh_py, mat_path, mat_var='u'):
     return mat_data
 
 
-def compute_L2_error(sp, u_h, ua):
+def compute_L2_error(sp, uh, ua):
     """
     Calcula o erro global na norma L2 usando errᵗ diag(J) M err para cada elemento.
 
@@ -88,7 +95,7 @@ def compute_L2_error(sp, u_h, ua):
     float
         Erro global na norma L2.
     """
-    err = ua - u_h
+    err = ua - uh
     M = sp.mass            # (Np x Np)
     J = sp.jacobian        # (Np x K)
     K = sp.mesh.number_of_elements()
@@ -98,7 +105,81 @@ def compute_L2_error(sp, u_h, ua):
         Jk = np.diag(J[:, k])         # (Np x Np)
         ek = err[:, k][:, np.newaxis] # (Np x 1)
         errL2_local[k] = (ek.T @ Jk @ M @ ek)[0, 0]
-
     return np.sqrt(np.sum(errL2_local))
 
 
+def L2_error_E_field(sp, driver, analytical_E, n_steps):
+    """
+    Avalia a evolução da norma L2 do erro entre a solução numérica e analítica ao longo do tempo.
+
+    Parâmetros
+    ----------
+    sp : DG1D
+        Objeto do espaço DG contendo malha, pesos, etc.
+    driver : MaxwellDriver
+        Objeto com os campos numéricos e método .step().
+    analytical_E : callable
+        Função f(x, t) que retorna a solução analítica para o campo E_y.
+    n_steps : int
+        Número de passos de tempo a serem executados.
+
+    Retorno
+    -------
+    dict
+        Dicionário com chaves:
+            'time'     → lista de instantes t
+            'L2_error' → lista de ||u_h - u_a||_{L2}(t)
+    """
+    error_data = {'time': [], 'L2_error': []}
+    t = 0.0
+
+    for _ in range(n_steps):
+        # Solução analítica reshape para shape (Np, K)
+        ua = analytical_E(sp.x, t)
+        uh = driver['E']
+        l2_error = compute_L2_error(sp, uh, ua)
+        error_data['time'].append(t)
+        error_data['L2_error'].append(l2_error)
+        driver.step()
+        t += driver.dt
+    return error_data
+
+
+def L2_error_fields(sp, driver, analytical_fields: dict, n_steps: int) -> dict:
+    """
+    Avalia a evolução da norma L2 do erro entre as soluções numéricas e analíticas ao longo do tempo
+    para múltiplos campos (E, H, etc.).
+
+    Parâmetros
+    ----------
+    sp : DG1D
+        Objeto do espaço DG contendo malha, pesos, etc.
+    driver : MaxwellDriver
+        Objeto com os campos numéricos e método .step().
+    analytical_fields : dict
+        Dicionário com chaves como 'E', 'H', etc., e valores sendo funções do tipo f(x, t).
+    n_steps : int
+        Número de passos de tempo a serem executados.
+
+    Retorno
+    -------
+    dict
+        Dicionário com:
+            'time' → lista de instantes t
+            'L2_error' → dicionário: nome do campo → lista de ||u_h - u_a||_{L2}(t)
+    """
+    error_data = {'time': [], 'L2_error': {key: [] for key in analytical_fields}}
+    t = 0.0
+
+    for _ in range(n_steps):
+        error_data['time'].append(t)
+        for field_name, analytical_fn in analytical_fields.items():
+            uh = driver[field_name]
+            ua = analytical_fn(sp.x, t)
+            l2_error = compute_L2_error(sp, uh, ua)
+            error_data['L2_error'][field_name].append(l2_error)
+
+        driver.step()
+        t += driver.dt
+
+    return error_data

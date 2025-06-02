@@ -516,7 +516,7 @@ def run_convergence(problem):
                 xmax=problem['L'],
                 k_elem=k,
                 boundary_label="Periodic"),
-                fluxType=problem['flux_type'])
+            fluxType=problem['flux_type'])
         
         # Initialize the solver
         driver = LinAdvecDriver1D(

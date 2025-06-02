@@ -292,3 +292,19 @@ class DG1D(SpatialDiscretization):
             )
 
         return energy
+
+    def getEnergyPerElement(self, field):
+        """
+        Retorna a energia armazenada em cada elemento separadamente:
+            E_k = field^T * MassMatrix * field * Jacobian_k
+        """
+        Np = self.number_of_nodes_per_element()
+        K = self.mesh.number_of_elements()
+        assert field.shape == (Np, K)
+        energy_per_element = np.zeros(K)
+
+        for k in range(K):
+            v = field[:, k]
+            energy_per_element[k] = v @ (self.mass @ v) * self.jacobian[0, k]
+
+        return energy_per_element

@@ -73,7 +73,6 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from tabulate import tabulate
 
 from maxwell.dg.mesh1d import *
 from maxwell.dg.dg1d import *
