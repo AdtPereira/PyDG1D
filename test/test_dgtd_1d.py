@@ -9,14 +9,11 @@ from maxwell.driver import *
 from maxwell.dg.mesh1d import *
 from maxwell.dg.dg1d import *
 from maxwell.fd.fd1d import *
-
-
 from nodepy import runge_kutta_method as rk
 
 
 def sinusoidal_wave_function(x, t):
     return np.sin(2*np.pi*x - 2*np.pi*t)
-
 
 def test_spatial_discretization_lift():
     sp = DG1D(1, Mesh1D(0.0, 1.0, 1))
@@ -228,7 +225,6 @@ def test_pec_centered():
     #     plt.pause(0.01)
     #     plt.cla()
 
-
 def test_pec_centered_lserk74():
     sp = DG1D(
         n_order=5,
@@ -264,7 +260,6 @@ def test_pec_centered_lserk74():
     #  lambdas = 1/np.sqrt(sp.epsilon*sp.mu)
     # real_solution = np.sin(sp.x-lambdas*t)
 
-
 def test_pec_centered_lserk134():
     sp = DG1D(
         n_order=3,
@@ -295,7 +290,6 @@ def test_pec_centered_lserk134():
     #     plt.pause(0.01)
     #     plt.cla()
 
-
 def test_pec_centered_euler():
     sp = DG1D(
         n_order=3,
@@ -325,7 +319,6 @@ def test_pec_centered_euler():
     #     plt.grid(which='both')
     #     plt.pause(0.00001)
     #     plt.cla()
-
 
 def test_pec_centered_lf2():
     sp = DG1D(

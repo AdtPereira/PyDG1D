@@ -8,8 +8,7 @@ import maxwell.dg.mesh1d as ms
 def test_jacobiGL():
     assert np.all(np.array([-1.,  1.]) == dg.jacobiGL(0.0, 0.0, 1))
     assert np.all(np.array([-1.,  0,  1.]) == dg.jacobiGL(0.0, 0.0, 2))
-    assert np.allclose(
-        np.array([-1., -0.4472136, 0.4472136, 1.0]), dg.jacobiGL(0.0, 0.0, 3))
+    assert np.allclose(np.array([-1., -0.4472136, 0.4472136, 1.0]), dg.jacobiGL(0.0, 0.0, 3))
 
 
 def test_jacobi_gauss():
