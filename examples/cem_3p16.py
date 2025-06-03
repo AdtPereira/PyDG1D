@@ -80,6 +80,28 @@ from maxwell.integrators.LSERK4 import *
 from maxwell.utils import *
 
 
+def resonant_cavity_field(problem_data, x, t):
+    """
+    Calcula a solução analítica u(x, t) = sin(kx/lambda * (x - a t)).
+
+    Parâmetros
+    ----------
+    problem_data : dict
+        Dados do problema contendo 'kx', 'lmbda', 'advec_speed' e 'tmax'.
+    x : ndarray
+        Coordenadas físicas onde a solução será avaliada.
+
+    Retorno
+    -------
+    ndarray
+        Valores da solução analítica nos pontos x.
+    """
+    kx = problem_data['kx']
+    lamb = problem_data['lmbda']
+    a = problem_data['advec_speed']
+    return np.sin(kx / lamb * (x - a * t))
+
+
 class LinAdvecDriver1D:
     """
     Classe para simulação da equação de advecção linear 1D usando
@@ -87,13 +109,14 @@ class LinAdvecDriver1D:
     A classe implementa um integrador temporal de Runge-Kutta de 5ª ordem
     e calcula o lado direito da equação de advecção.
     """
-    def __init__(self, problem_data, sp, u0):
+    def __init__(self, problem_data, sp):
         self.problem_data = problem_data        # Dados do problema
         self.sp = sp                            # Objeto de discretização espacial DG1D
         self.a = problem_data['advec_speed']    # Velocidade de advecção
-        self.u_h = u0                           # Condição inicial u(x, 0)
         CFL = problem_data['cfl']               # Número de Courant-Friedrichs-Lewy
         
+        # Condição inicial u(x, 0)
+        self.u_h = resonant_cavity_field(problem_data, sp.x, 0.0) 
         self.energy_history = []
         self.time_history = []
         
@@ -221,6 +244,8 @@ class LinAdvecDriver1D:
             Caminho absoluto da pasta de saída onde o log será salvo.
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ua = resonant_cavity_field(self.problem_data, self.sp.x, self.problem_data['tmax'])
+        R = np.corrcoef(ua, self.u_h)
 
         # 1. Informações de discretização espacial
         spatial_info = [
@@ -257,9 +282,15 @@ class LinAdvecDriver1D:
             "\n3. Informações do Driver",
             "-" * 75,
             f"Tipo de fluxo: {self.sp.fluxType}",
+            f"Velocidade de advecção, a: {self.a}",
+            f"Número de Courant-Friedrichs-Lewy, CFL: {self.problem_data['cfl']}",
+            f"Passo de tempo, dt: {self.dt:.4e}",
+            f"Tempo final, FinalTime: {self.problem_data['tmax']:.4e}",
             f"Condição de contorno: {self.sp.mesh.boundary_label}",
-            # f"\nSolução numérica u_h:\n{np.array2string(driver.u_h, precision=4)}"
-            format_matrix(self.u_h, title="DG Solution u_h")
+
+            format_matrix(self.u_h, title=f"DG Solution u_h @ t = {self.problem_data['tmax']:.2f}"),
+            format_matrix(ua, title=f"Solução Analítica u_a @ t = {self.problem_data['tmax']:.2f}"),            
+            f"\n🌐 Correlação entre solução analítica e numérica: {R[0, 1]:.2f}"
         ]
 
         header = [
@@ -285,8 +316,8 @@ class LinAdvecDriver1D:
             f.write('\n'.join(log_lines))
 
         # Impressão no terminal
-        print("\n📄 LOG GERADO:", log_path)
         print("\n".join(log_lines))
+        print("\n📄 LOG GERADO:", log_path)
 
     def ComputeDiscreteEnergy(self, u):
         """
@@ -340,29 +371,6 @@ class LinAdvecDriver1D:
         return np.sqrt(np.sum(errL2_local))
 
 
-def analytical_solution(problem_data, x):
-    """
-    Calcula a solução analítica u(x, t) = sin(kx/lambda * (x - a t)).
-
-    Parâmetros
-    ----------
-    problem_data : dict
-        Dados do problema contendo 'kx', 'lmbda', 'advec_speed' e 'tmax'.
-    x : ndarray
-        Coordenadas físicas onde a solução será avaliada.
-
-    Retorno
-    -------
-    ndarray
-        Valores da solução analítica nos pontos x.
-    """
-    kx = problem_data['kx']
-    lamb = problem_data['lmbda']
-    a = problem_data['advec_speed']
-    t = problem_data['tmax']
-    return np.sin(kx / lamb * (x - a * t))
-
-
 def plot_solution(problem, sp, u_h) -> None:
     """
     Retorna a solução analítica u(x, t) = sin(x - a t) e
@@ -385,8 +393,8 @@ def plot_solution(problem, sp, u_h) -> None:
     K = sp.mesh.number_of_elements()
     xmin, xmax = sp.mesh.xmin, sp.mesh.xmax
     x_scale = problem['L']
-    x_ana = np.linspace(xmin, xmax, 1000)
-    u_ana = analytical_solution(problem, x_ana)
+    xa = np.linspace(xmin, xmax, 1000)
+    ua = resonant_cavity_field(problem, xa, problem['tmax'])
     _, axs = plt.subplots(1, 1, figsize=(10, 6), sharey=True)
 
     # === Subplot 1: Solução global ===
@@ -402,7 +410,7 @@ def plot_solution(problem, sp, u_h) -> None:
         )
 
     # Sobreposição da solução analítica
-    axs.plot(x_ana / x_scale, u_ana, 'k--', linewidth=1, label='Solução analítica')
+    axs.plot(xa / x_scale, ua, 'k--', linewidth=1, label='Solução analítica')
     axs.set_title(f"1D linear advection equation with {sp.fluxType} Flux"
         f"\n a = {problem['advec_speed']:.2f}, N = {problem['n_order']}, "
         f"K = {K}, T = {problem['tmax']:.0f}")
@@ -464,13 +472,10 @@ def single_test_solution(problem) -> None:
             xmax=problem['L'],
             k_elem=problem['k_elem'],
             boundary_label="Periodic"),
-            fluxType=problem['flux_type'])
+        fluxType=problem['flux_type'])
     
     # Initialize the solver
-    driver = LinAdvecDriver1D(
-        problem,
-        sp,
-        u0=np.sin(problem['kx'] / problem['lmbda'] * sp.x))
+    driver = LinAdvecDriver1D(problem, sp)
     
     # Set the time integrator
     driver.run(FinalTime=problem['tmax'])
@@ -478,8 +483,16 @@ def single_test_solution(problem) -> None:
     # Logging
     driver.DriverLog(folder_name='cem_3p1')
 
+    # # Compute the correlation coefficient
+    # u_expected = resonant_cavity_field(problem, sp.x, problem['tmax'])
+    # print(f"\n🌐 Solução esperada (analítica) em t = {problem['tmax']}:")
+    # print(f"\n{u_expected}")
+    # R = np.corrcoef(u_expected, driver.u_h)
+    # print(f"\n🌐 Correlação entre solução esperada e solução numérica: {R[0,1]:.2f}")
+
     # Compute L2 error
-    ua = analytical_solution(problem, sp.x)
+    # ua = analytical_solution(problem, sp.x)
+    ua = resonant_cavity_field(problem, sp.x, problem['tmax'])
     L2_error = driver.ComputeL2Error(ua)
     print(f"\n🌐 Erro global na norma L2: {L2_error:.1e}")
 
@@ -519,14 +532,11 @@ def run_convergence(problem):
             fluxType=problem['flux_type'])
         
         # Initialize the solver
-        driver = LinAdvecDriver1D(
-            problem,
-            sp,
-            u0=np.sin(problem['kx'] / problem['lmbda'] * sp.x))
+        driver = LinAdvecDriver1D(problem, sp)
         
         # Compute L2 error
         driver.run(FinalTime=problem['tmax'])
-        ua = analytical_solution(problem, sp.x)
+        ua = resonant_cavity_field(problem, sp.x, problem['tmax'])
         errors.append(driver.ComputeL2Error(ua))
 
     for i in range(1, len(errors)):
@@ -588,8 +598,7 @@ def compute_energy_evolution(problem: dict):
                 boundary_label="Periodic"),
             fluxType=problem['flux_type'])
 
-        u0 = np.sin(problem['kx'] / problem['lmbda'] * sp.x)
-        driver = LinAdvecDriver1D(problem, sp, u0)
+        driver = LinAdvecDriver1D(problem, sp)
         driver.run(FinalTime=problem['tmax'])
 
         # Plot da energia
@@ -637,9 +646,8 @@ def plot_multi_solution(problem: dict, results: list) -> None:
         K = data['K']
         x = data['x']
         u_h = data['u_h']
-        sp = data['sp']
-        x_ana = np.linspace(0, problem['L'], 1000)
-        u_ana = analytical_solution(problem, x_ana)
+        xa = np.linspace(0, problem['L'], 1000)
+        ua = resonant_cavity_field(problem, xa, problem['tmax'])
 
         ax = axs[idx]
         for k in range(K):
@@ -652,7 +660,7 @@ def plot_multi_solution(problem: dict, results: list) -> None:
                 linestyle='-',
                 linewidth=1.0
             )
-        ax.plot(x_ana, u_ana, 'k--', linewidth=1.2, label="Analítica")
+        ax.plot(xa, ua, 'k--', linewidth=1.2, label="Analítica")
         ax.set_title(fr'$K = {K}$')
         ax.set_xlim([0, problem['L']])
         ax.set_ylim([-1.5, 1.5])
@@ -687,10 +695,10 @@ def main() -> None:
     # Test 0 - The solution
     single_test_solution(PROBLEM)
 
-    # Test 1 - Run convergence study
+    # # Test 1 - Run convergence study
     # run_convergence(PROBLEM)
 
-    # Test 2 - Compute energy evolution
+    # # Test 2 - Compute energy evolution
     # results = compute_energy_evolution(PROBLEM)
     # plot_multi_solution(PROBLEM, results)
 

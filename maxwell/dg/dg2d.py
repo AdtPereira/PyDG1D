@@ -23,6 +23,7 @@ class Maxwell2D(SpatialDiscretization):
         self.mu = np.ones(mesh.number_of_elements())
 
         r, s = xy_to_rs(*set_nodes_in_equilateral_triangle(n_order))
+        self.mass = mass_matrix(n_order, r, s)
         self.Dr, self.Ds = derivateMatrix(n_order, r, s)
         self.x, self.y = nodes_coordinates(n_order, mesh)
 
@@ -409,7 +410,6 @@ class Maxwell2D(SpatialDiscretization):
         rhs_Ez_stiffness =  rhs_CuHz
 
         return {'Hx': rhs_Hx_stiffness, 'Hy': rhs_Hy_stiffness, 'Ez': rhs_Ez_stiffness}
-
     
     def computeRHSZeroNormal(self, fields):
         Hx = fields['Hx']
@@ -452,8 +452,6 @@ class Maxwell2D(SpatialDiscretization):
         rhs_Ez_two_normal = np.matmul(self.lift, self.f_scale * flux_Ez_two_normal)/2.0
 
         return {'Hx': rhs_Hx_two_normal, 'Hy': rhs_Hy_two_normal, 'Ez': rhs_Ez_two_normal}
-
-
 
     def plot_field(self, Nout, field):
         # Build equally spaced grid on reference triangle

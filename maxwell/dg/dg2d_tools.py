@@ -39,7 +39,6 @@ def warpFactor(N, rout):
     warp = warp / sf + warp * (zerof-1)
     return warp
 
-
 def set_nodes_in_equilateral_triangle(N):
     '''
         x, y = set_nodes(N)
@@ -87,7 +86,6 @@ def set_nodes_in_equilateral_triangle(N):
 
     return x, y
 
-
 def xy_to_rs(x,y):
 
     L1 = (np.sqrt(3.0)*y+1.0)/3.0
@@ -98,7 +96,6 @@ def xy_to_rs(x,y):
     s = -L2 - L3 + L1
 
     return r, s
-
 
 def simplex_polynomial(a, b, i: int, j: int):
     '''
@@ -146,6 +143,11 @@ def vandermonde(N: int, r, s):
             sk += 1
 
     return V
+
+def mass_matrix(n_order, r, s):
+    vander = vandermonde(n_order, r, s)
+    mass = np.linalg.inv(vander.dot(vander.transpose()))
+    return mass
 
 def derivateMatrix(N: int, r, s):
     V = vandermonde(N, r, s)

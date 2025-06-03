@@ -12,6 +12,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import json
 from scipy.io import loadmat
 
 # Configurações do matplotlib
@@ -75,6 +76,38 @@ def compare_with_matlab(uh_py, mat_path, mat_var='u'):
     print(f'\nErro L2 entre soluções Python e MATLAB: {L2_norm:.3e}')
 
     return mat_data
+
+
+def extract_webdigitized_data(json_path: str) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Lê um arquivo JSON exportado pelo WebPlotDigitizer, extrai
+    o primeiro dataset, ordena por X e retorna dois arrays: X e Y.
+    
+    Parâmetros
+    ----------
+    json_file_name : str
+        Nome do arquivo JSON (deve estar em `inputs_folder`).
+    inputs_folder : Path
+        Pasta onde está o JSON.
+    
+    Retorno
+    -------
+    x, y : tuple de np.ndarray
+        Vetores com as coordenadas ordenadas.
+    """
+    if not json_path.is_file():
+        raise FileNotFoundError(f"JSON não encontrado: {json_path}")
+
+    with open(json_path, 'r', encoding='utf-8') as f:
+        obj = json.load(f)
+
+    data_points = obj['datasetColl'][0]['data']
+    # ordena pelo valor calibrado em X
+    data_sorted = sorted(data_points, key=lambda pt: pt['value'][0])
+
+    x = np.array([pt['value'][0] for pt in data_sorted])
+    y = np.array([pt['value'][1] for pt in data_sorted])
+    return x, y
 
 
 def compute_L2_error(sp, uh, ua):

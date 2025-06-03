@@ -68,7 +68,7 @@ class MaxwellDriver:
         self.timeIntegrator.step(self.fields, dt)
 
     def run(self, final_time):
-        for t_step in range(1, np.ceil(final_time/self.dt)):
+        for t_step in range(1, int(np.ceil(final_time/self.dt))):
             self.step()
 
     def run_until(self, final_time):
