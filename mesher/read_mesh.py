@@ -1,7 +1,6 @@
 # %%
 import gmsh
-import numpy as np
-import matplotlib.pyplot as plt
+
 
 # %% [markdown]
 # # Gmsh application programming interface (API)
@@ -651,106 +650,6 @@ def get_tetrahedra_data(FINITE_ELEMENT, BOUNDARY, MATERIAL, model):
 
     gmsh.finalize()    
     return mesh_data
-
-# %%
-
-def structured_data(mesh_data):
-    # Extraindo as coordenadas globais dos nós (x, y)
-    try:
-        xg = [node['xg'][0] for node in mesh_data['nodes'].values()]
-        yg = [node['xg'][1] for node in mesh_data['nodes'].values()]
-    except KeyError as e:
-        raise ValueError(f"Erro ao acessar as coordenadas globais: {e}")
-
-    # Extraindo a matriz de conectividade
-    try:
-        conn = [cell['conn'] for cell in mesh_data['cell'].values()]
-        # Ajusta índice para 0-based
-        conn_py = [[node - 1 for node in nodes[:3]] for nodes in conn]  
-    except KeyError as e:
-        raise ValueError(f"Erro ao acessar a conectividade: {e}")
-    
-    return xg, yg, conn_py
-
-# %%
-def plot_triangular_mesh(INFO_GRAPH, mesh_data, nodes_index_based=0):
-    # Dados do gráfico
-    show_cell = INFO_GRAPH['cell']
-    show_nodes = INFO_GRAPH['nodes']
-    show_edges = INFO_GRAPH['edges']
-    show_edges_numb = INFO_GRAPH['edges_numb']
-    filepath = INFO_GRAPH['filepath']
-
-    # Estruturando os dados da malha
-    nodes_data = mesh_data['nodes']
-    
-    # Extraindo as coordenadas globais dos nós (x, y) e a matriz de conectividade
-    xg, yg, conn_py = structured_data(mesh_data)
-
-    plt.figure(figsize=(8, 6))
-    # Plotando a malha de elementos finitos
-    plt.triplot(xg, yg, conn_py, color='gray')  
-    
-    # Plotando as arestas dos elementos
-    if show_edges or show_edges_numb:
-        for key, edge in mesh_data['edges'].items():
-            # Coordenadas dos nós inicial e final
-            x0 = nodes_data[edge['conn'][0]]['xg'][0]
-            y0 = nodes_data[edge['conn'][0]]['xg'][1]
-            x1 = nodes_data[edge['conn'][1]]['xg'][0]
-            y1 = nodes_data[edge['conn'][1]]['xg'][1]
-            
-            # Ponto médio da aresta
-            x_mid, y_mid = (x0 + x1) / 2, (y0 + y1) / 2
-            
-            # Vetor da seta (a partir do ponto médio)
-            dx, dy = (x1 - x0) * 0.2, (y1 - y0) * 0.2  
-                
-            # Adicionando uma seta no meio da aresta
-            if show_edges:
-                plt.arrow(x_mid, y_mid, dx, dy, head_width=0.015, head_length=0.05,
-                                fc='blue', ec='blue', length_includes_head=True)
-
-            # Adicionando os números das arestas
-            if show_edges_numb:
-                plt.scatter(x_mid, y_mid, marker='s', color='white', 
-                                edgecolor='black', s=120, zorder=1)                
-                plt.text(x_mid, y_mid, key, color='blue', fontsize=6, 
-                                ha='center', va='center')
-
-    # Adicionando nós
-    if show_nodes: 
-        for key, node in nodes_data.items():
-            x, y = node['xg'][0], node['xg'][1]
-            plt.scatter(x, y, color='white', edgecolor='black', s=180)
-            if nodes_index_based == 1:
-                plt.text(x, y, str(key), color='red', fontsize=6, ha='center', va='center')
-            elif nodes_index_based == 0:
-                plt.text(x, y, str(key - 1), color='red', fontsize=6, ha='center', va='center')
-            else:
-                raise ValueError("nodes_index_based deve ser 0 ou 1.")  
-    else:
-        plt.scatter(xg, yg, color='black', s=1, zorder=3)
-
-    # Adicionando elementos
-    if show_cell:
-        for key, cell in mesh_data['cell'].items():
-            xc = np.mean([nodes_data[node]['xg'][0] for node in cell['conn']])
-            yc = np.mean([nodes_data[node]['xg'][1] for node in cell['conn']])
-            plt.text(xc, yc, str(key), fontweight='bold',
-                        color='black', fontsize=6, ha='center', va='center')
-                
-    # Ajustando rótulos e layout
-    plt.xlabel(r'$x$')
-    plt.ylabel(r'$y$')
-    plt.axis('equal')
-    plt.tight_layout()
-    
-    # Salvando o arquivo no formato SVG
-    plt.savefig(filepath, format="svg")
-    plt.show()
-    # plt.close()
-    print(f"Arquivo salvo em: {filepath}")
 
 # %% [markdown]
 # Conversão do arquivo Jupyter Notebook para um script Python: ``python -m nbconvert --to script name.ipynb``

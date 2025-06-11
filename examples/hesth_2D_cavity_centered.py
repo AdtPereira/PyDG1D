@@ -68,18 +68,16 @@ import sys
 # Adiciona a raiz do projeto ao PYTHONPATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from pathlib import Path
-from datetime import datetime
 import numpy as np
 import pandas as pd
+from pathlib import Path
 import matplotlib.pyplot as plt
-import gmsh
 
 from maxwell.dg.dg2d import *
 from maxwell.driver import *
 from maxwell.integrators.LSERK4 import *
-from mesher.read_mesh import *
-from maxwell.utils import extract_webdigitized_data
+from mesher.create_mesh import *
+from maxwell.utils import *
 
 
 BOUNDARY = [{'tag': 101,
@@ -94,96 +92,12 @@ MATERIAL = [{'tag': 201,
                  'relative_electric_permittivity': 1}]   
     
 
-def clear_terminal() -> None:
-    """Limpa o terminal para melhor visualização."""
-    os.system('cls' if os.name == 'nt' else 'clear')
-
-
 def resonant_cavity_ez_field(x, y, t):
     ''' Hesthaven's book p. 205 '''
     m = 1
     n = 1 
     w = np.pi * np.sqrt(m**2 + n**2)
     return np.sin(m*np.pi*x)*np.sin(n*np.pi*y)*np.cos(w*t)
-
-
-def mesh_rectangular_domain(PROBLEM, BOUNDARY, MATERIAL, h, view_mesh=False, mesh_info=False, auto_save=True):
-    mesh_data = {}
-
-    # Dimensões do domínio retangular
-    a, b = PROBLEM['L'], PROBLEM['L']
-
-    # Inicializar o Gmsh
-    gmsh.initialize()
-    gmsh.model.add("rectangular_domain")
-
-    # Criar superfície retangular
-    TagSurface = gmsh.model.occ.addRectangle(-a/2, -b/2, 0, a, b)
-    gmsh.model.occ.synchronize()
-    gmsh.option.setNumber("Mesh.MeshSizeMin", h)
-    gmsh.option.setNumber("Mesh.MeshSizeMax", h)
-    gmsh.model.mesh.generate(dim=2)
-    gmsh.model.mesh.setOrder(1)
-
-    # Obter os contornos (curvas, dim=1) de cada superfície
-    outDimTags = gmsh.model.getBoundary([(2, TagSurface)], oriented=True, recursive=False)
-
-    # Exibir os TAGs das curvas associadas a cada contorno
-    tagList_boundary = [Dimtags[1] for Dimtags in outDimTags]
-
-    # Definindo as curvas de contorno de Dirichlet (dim=1)
-    gmsh.model.addPhysicalGroup(dim=1, tags=tagList_boundary, tag=BOUNDARY[0]['tag'], name=BOUNDARY[0]['name'])
-
-    # Adicionar grupos físicos para Dim=2 (superfícies)
-    gmsh.model.addPhysicalGroup(dim=2, tags=[TagSurface], tag=MATERIAL[0]['tag'], name=MATERIAL[0]['name'])
-
-    # Obter dados de nós (vértices)
-    _ , node_coords, _ = gmsh.model.mesh.getNodes()
-    coords = node_coords.reshape(-1, 3)  # (N_nodes, 3), usa apenas X, Y
-
-    VX = coords[:, 0]  # x-coordinates
-    VY = coords[:, 1]  # y-coordinates
-
-    # Obter elementos de dimensão 2 (triângulos)
-    elem_types, _, elem_node_tags = gmsh.model.mesh.getElements(dim=2)
-    
-    # Considerar apenas elementos triangulares (type 2)
-    tri_type = 2
-    if tri_type in elem_types:
-        idx = np.where(elem_types == tri_type)[0][0]
-        elem_nodes = elem_node_tags[idx]
-        EToV = np.array(elem_nodes, dtype=int).reshape(-1, 3) - 1  # Convertendo para zero-based index
-    else:
-        raise ValueError("Malha não contém elementos triangulares.")
-    
-    if view_mesh:
-        gmsh.fltk.run()
-    
-    if auto_save:
-        # Criação da pasta de saída, se necessário
-        INPUTS = (Path(__file__).parent.parent / 'examplesData' / 'inputs' / PROBLEM['folder_name']).resolve()
-        INPUTS.mkdir(parents=True, exist_ok=True)
-        file_path = INPUTS / f"{PROBLEM['name']}.msh"
-        print(f"\nMalha salva em {file_path}")
-        gmsh.write(str(file_path))
-        # basic_info()
-
-    # Create mesh Structure Data from gmsh
-    mesh_data['cell'] = get_cell_data(MATERIAL)
-    mesh_data['nodes'] = get_nodes_data(BOUNDARY, problem_dim=2)
-    mesh_data['VX'] = VX
-    mesh_data['VY'] = VY
-    mesh_data['EToV'] = EToV
-
-    # Exibir informações da malha
-    if mesh_info:
-        print(f"🌐 VX: {mesh_data['VX']}")
-        print(f"🌐 VY: {mesh_data['VY']}")
-        print(f"🌐 EToV:\n {mesh_data['EToV']}")
-
-    gmsh.finalize()
-    print(f"\n🌐 Malha criada com {len(VX)} nós e {len(EToV)} elementos triangulares.\n")
-    return mesh_data
 
 
 def single_test_solution(problem_data) -> None:
@@ -495,24 +409,23 @@ def main() -> None:
     clear_terminal()
 
     # PROBLEMA: Definições do problema de advecção linear 1D
-    PROBLEM = {'name': 'hesth_2D_cavity_upwind',
+    PROBLEM = {'name': 'hesth_2D_cavity_centered',
         'folder_name': 'hesth_2D_cavity',
         'description': 'Teste de convergência do esquema DGTD bidimensional TMz. Hesthaven, p. 205',
         'json_name': 'hesthaven_fig_69a',
-        'flux_type': 'Centered',      # 'Upwind' or 'Centered'
+        'flux_type': 'Centered',    # 'Upwind' or 'Centered'
         'cfl': 0.1,                 # Número de Courant-Friedrichs-Lewy
         'n_steps': 40,              # Tempo final da simulação
         'kx': 2*np.pi,              # Número de onda
         'L': 2,                     # Comprimento do domínio
-        'n_order': 3,               # Ordem de interpolação polinomial
-        'k_elem': 1                 # Número de elementos na malha
+        'n_order': 3                # Ordem de interpolação polinomial
     }
     
     # Test 0 - The solution
-    # single_test_solution(PROBLEM)    
+    single_test_solution(PROBLEM)    
 
     # Test 1 - Convergence study
-    # run_L2_error(PROBLEM)
+    run_L2_error(PROBLEM)
 
     # Test 2 - Convergence rate study
     run_convergence_rate_study(PROBLEM, json_name=PROBLEM['json_name'])

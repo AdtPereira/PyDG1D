@@ -38,11 +38,7 @@ class Maxwell2D(SpatialDiscretization):
         
         fmask, _, _, _ = buildFMask(n_order)
 
-        self.nx, self.ny, sJ = normals(
-            self.x, self.y,
-            self.Dr, self.Ds,
-            n_order
-        )
+        self.nx, self.ny, sJ = normals( self.x, self.y, self.Dr, self.Ds, n_order )
         self.f_scale = sJ/self.jacobian[fmask.ravel('F')]
 
         self.buildMaps()
