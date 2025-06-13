@@ -98,25 +98,6 @@ def xy_to_rs(x,y):
 
     return r, s
 
-def rs_to_xy(r, s):
-    """
-    Realiza o mapeamento inverso das coordenadas de referência (r, s)
-    para o triângulo equilátero padrão (x, y).
-
-    Retorna:
-        x, y : arrays com as coordenadas físicas correspondentes.
-    """
-    # Coordenadas baricêntricas inversas de (r, s)
-    L1 = (1 + r + s) / 2
-    L2 = (1 - r) / 2
-    L3 = (1 - s) / 2
-
-    # Mapeamento direto para o triângulo equilátero padrão
-    x = -L2 + L3
-    y = (-L2 - L3 + 2 * L1) / np.sqrt(3.0)
-
-    return x, y
-
 def simplex_polynomial(a, b, i: int, j: int):
     '''
         % function [P] = Simplex2DP(a,b,i,j);
@@ -219,55 +200,19 @@ def gradSimplexP(a, b, i: int, j: int):
 
     return dmodedr, dmodeds
 
-# def nodes_coordinates(N, msh: mesh.Mesh2D):
-#     """
-#     Builds coordinates for all elements in mesh.
-#     """
-
-#     va = msh.EToV[:,0].transpose()
-#     vb = msh.EToV[:,1].transpose()
-#     vc = msh.EToV[:,2].transpose()
-
-#     r, s  = xy_to_rs(*set_nodes_in_equilateral_triangle(N))
-
-#     x = 0.5*(- np.outer(r+s, msh.vx[va]) + np.outer(1+r, msh.vx[vb]) + np.outer(1+s, msh.vx[vc]))
-#     y = 0.5*(- np.outer(r+s, msh.vy[va]) + np.outer(1+r, msh.vy[vb]) + np.outer(1+s, msh.vy[vc]))
-
-#     return x, y
-
-def nodes_coordinates_from_gmsh(N, mesh_data):
+def nodes_coordinates(N, msh: mesh.Mesh2D):
     """
-    Calcula as coordenadas dos nós para todos os elementos da malha
-    utilizando a estrutura mesh_data['VX'], ['VY'] e ['EToV'].
-
-    Parâmetros:
-        N (int): ordem do polinômio
-        mesh_data (dict): dicionário contendo 'VX', 'VY' e 'EToV'
-
-    Retorna:
-        x (ndarray): coordenadas x dos nós locais de todos os elementos
-        y (ndarray): coordenadas y dos nós locais de todos os elementos
+    Builds coordinates for all elements in mesh.
     """
-    VX = mesh_data['VX']
-    VY = mesh_data['VY']
-    EToV = mesh_data['EToV']
 
-    va = EToV[:, 0]
-    vb = EToV[:, 1]
-    vc = EToV[:, 2]
+    va = msh.EToV[:,0].transpose()
+    vb = msh.EToV[:,1].transpose()
+    vc = msh.EToV[:,2].transpose()
 
-    r, s = xy_to_rs(*set_nodes_in_equilateral_triangle(N))
+    r, s  = xy_to_rs(*set_nodes_in_equilateral_triangle(N))
 
-    x = 0.5 * (
-        -np.outer(r + s, VX[va]) +
-         np.outer(1 + r, VX[vb]) +
-         np.outer(1 + s, VX[vc])
-    )
-    y = 0.5 * (
-        -np.outer(r + s, VY[va]) +
-         np.outer(1 + r, VY[vb]) +
-         np.outer(1 + s, VY[vc])
-    )
+    x = 0.5*(- np.outer(r+s, msh.vx[va]) + np.outer(1+r, msh.vx[vb]) + np.outer(1+s, msh.vx[vc]))
+    y = 0.5*(- np.outer(r+s, msh.vy[va]) + np.outer(1+r, msh.vy[vb]) + np.outer(1+s, msh.vy[vc]))
 
     return x, y
 
