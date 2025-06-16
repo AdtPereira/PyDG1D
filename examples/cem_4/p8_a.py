@@ -84,10 +84,10 @@ from maxwell.utils import *
 BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]
 MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]   
 INFO_GRAPH = {'cell': False, 'nodes': False, 'edges': False, 'edges_numb': False, 'filepath': 'examplesData/inputs/cem_4p8/cem_4p8.svg'}
-PROBLEM = {'name': 'cem_4p8', 'folder_name': 'cem_4p8', 'description': 'Teste de convergência do esquema DGTD bidimensional TMz.',
+PROBLEM = {'name': 'cem_4p8_a', 'folder_name': 'cem_4p8', 'description': 'Teste de convergência do esquema DGTD bidimensional TMz.',
     'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
-    'flux_type': 'Centered',      # 'Upwind' or 'Centered'
-    'cfl': 1E-1,                  # Número de Courant-Friedrichs-Lewy
+    'flux_type': 'Centered',    # 'Upwind' or 'Centered'
+    'cfl': 0.1,                 # Número de Courant-Friedrichs-Lewy
     'm': 1,                     # Número de modo
     'n': 1,                     # Número de modo
     'L': np.pi,                 # Dimensão total do domínio
@@ -495,6 +495,7 @@ def run_convergence_rate_study(PROBLEM) -> pd.DataFrame:
     sa = SpectralAnalyzer(PROBLEM)
     epsilon = 1e-15
     N_list = [1, 2, 3, 4, 5]
+    N_list = [1, 2, 3]
     h_list = [4 / (2**n) for n in range(5)] # [4, 2, 1, 0.5, 0.25]
 
     table_data = {}
@@ -542,11 +543,11 @@ def main() -> None:
     single_test_solution(PROBLEM)    
 
     # Test 1 - Convergence study
-    # run_L2_error(PROBLEM)
+    run_L2_error(PROBLEM)
 
     # Test 2 - Convergence rate study
-    # run_convergence_rate_study(PROBLEM)
-    # print("\n✅ Execução concluída com sucesso!")
+    run_convergence_rate_study(PROBLEM)
+    print("\n✅ Execução concluída com sucesso!")
 
 
 if __name__ == '__main__':
