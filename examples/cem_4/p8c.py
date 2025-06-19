@@ -70,7 +70,6 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..\..')
 
 import numpy as np
 import pandas as pd
-from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.tri import Triangulation
 
@@ -84,13 +83,14 @@ from maxwell.utils import *
 BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]
 MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]   
 INFO_GRAPH = {'cell': False, 'nodes': False, 'edges': False, 'edges_numb': False, 'filepath': 'examplesData/inputs/cem_4p8/cem_4p8.svg'}
-PROBLEM = {'name': 'cem_4p8_a', 'folder_name': 'cem_4p8', 'description': 'Teste de convergência do esquema DGTD bidimensional TMz.',
-    'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
+PROBLEM = {'name': 'cem_4p8c', 'folder_name': 'cem_4p8', 'description': 'Teste de convergência do esquema DGTD bidimensional TMz.',
+    'bc': "Periodic",           # Condição de contorno: 'PEC'  or 'Periodic'
     'flux_type': 'Centered',    # 'Upwind' or 'Centered'
     'cfl': 0.1,                 # Número de Courant-Friedrichs-Lewy
     'm': 1,                     # Número de modo
     'n': 1,                     # Número de modo
-    'L': np.pi,                 # Dimensão total do domínio
+    'Lx': 2*np.pi,              # Dimensão total do domínio
+    'Ly': 2*np.pi,              # Dimensão total do domínio
     'n_order': 3                # Ordem de interpolação polinomial
 }
 
@@ -99,11 +99,13 @@ class SpectralAnalyzer:
     def __init__(self, PROBLEM):
         self.m = PROBLEM['m']
         self.n = PROBLEM['n']
-        self.L = PROBLEM['L']
-        kx = self.m * np.pi / self.L
-        ky = self.n * np.pi / self.L
+        self.Lx = PROBLEM['Lx']
+        self.Ly = PROBLEM['Ly']
+        kx = self.m * np.pi / self.Lx
+        ky = self.n * np.pi / self.Ly
         self.w = np.sqrt(kx**2 + ky**2)
         self.t_final = 3 * (2 * np.pi / self.w)
+
 
     def resonant_cavity_ez_field(self, x, y, t):
         return np.cos(x) * np.cos(y) * np.cos(self.w*t)
@@ -123,21 +125,18 @@ class SpectralAnalyzer:
         em t = 3T, com dois subplots: mapa de cores 2D e superfície 3D.
         """
         # Domínio
-        L = self.L
-        T = 2 * np.pi / self.w
-        x = np.linspace(-L/2, L/2, Nx)
-        y = np.linspace(-L/2, L/2, Ny)
+        Lx = self.Lx
+        Ly = self.Ly
+        x = np.linspace(-Lx/2, Lx/2, Nx)
+        y = np.linspace(-Ly/2, Ly/2, Ny)
         X, Y = np.meshgrid(x, y)
 
-        # Tempo final = 3 períodos
-        t_final = 3 * T
-
         # Avaliação da solução
-        Ez = self.resonant_cavity_ez_field(X, Y, t_final)
+        Ez = self.resonant_cavity_ez_field(X, Y, self.t_final)
 
         # Criação dos subplots
         fig = plt.figure(figsize=(12, 5))
-        fig.suptitle(rf'Solução Analítica $E_z(x, y, t = 3T = {t_final:.2f} s)$', fontsize=14)
+        fig.suptitle(rf'Solução Analítica $E_z(x, y, t = 3T = {self.t_final:.1f} s)$', fontsize=14)
 
         # Subplot 1: Heatmap 2D
         ax1 = fig.add_subplot(1, 2, 1)
@@ -176,15 +175,15 @@ def single_test_solution(PROBLEM) -> None:
     -------
     None
     """
-    sa = SpectralAnalyzer(PROBLEM)
     # Criar a malha retangular com Gmsh
+    sa = SpectralAnalyzer(PROBLEM)
     mesh_data = mesh_rectangular_domain(PROBLEM, BOUNDARY, MATERIAL, h=1, view_mesh=False, mesh_info=False) 
 
     # Visualizar a malha criada
-    # plot_triangular_mesh(INFO_GRAPH, mesh_data)
+    plot_triangular_mesh(INFO_GRAPH, mesh_data)
 
     # Solução analítica
-    # sa.plot_analytical_field()
+    sa.plot_analytical_field()
 
     # Definir a discretização espacial usando DG2D
     sp = Maxwell2D(
@@ -494,9 +493,9 @@ def run_convergence_rate_study(PROBLEM) -> pd.DataFrame:
     """
     sa = SpectralAnalyzer(PROBLEM)
     epsilon = 1e-15
-    N_list = [1, 2, 3, 4, 5]
+    #N_list = [1, 2, 3, 4, 5]
     N_list = [1, 2, 3]
-    h_list = [4 / (2**n) for n in range(5)] # [4, 2, 1, 0.5, 0.25]
+    h_list = [4 / (2**n) for n in range(3)] # [4, 2, 1, 0.5, 0.25]
 
     table_data = {}
     loglog_data = {}
@@ -542,12 +541,12 @@ def main() -> None:
     # Test 0 - The solution
     single_test_solution(PROBLEM)    
 
-    # Test 1 - Convergence study
-    run_L2_error(PROBLEM)
+    # # Test 1 - Convergence study
+    # run_L2_error(PROBLEM)
 
-    # Test 2 - Convergence rate study
-    run_convergence_rate_study(PROBLEM)
-    print("\n✅ Execução concluída com sucesso!")
+    # # Test 2 - Convergence rate study
+    # run_convergence_rate_study(PROBLEM)
+    # print("\n✅ Execução concluída com sucesso!")
 
 
 if __name__ == '__main__':

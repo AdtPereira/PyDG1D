@@ -305,8 +305,8 @@ class Maxwell2D(SpatialDiscretization):
 
         if self.fluxType == "Upwind":
             ndotdH = self.nx * dHx + self.ny * dHy
-            flux_Hx_Two_Normal += ndotdH * self.nx
-            flux_Hy_Two_Normal += ndotdH * self.ny
+            flux_Hx_Two_Normal += ndotdH * self.nx - dHx
+            flux_Hy_Two_Normal += ndotdH * self.ny - dHy
         elif self.fluxType == "Centered":
             pass
         else:

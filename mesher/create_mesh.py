@@ -10,7 +10,7 @@ def mesh_rectangular_domain(PROBLEM, BOUNDARY, MATERIAL, h, view_mesh=False, mes
     TRI_TYPE = 2
 
     # Dimensões do domínio retangular
-    a, b = PROBLEM['L'], PROBLEM['L']
+    a, b = PROBLEM['Lx'], PROBLEM['Ly']
 
     # Inicializar o Gmsh
     gmsh.initialize()
@@ -84,7 +84,7 @@ def mesh_rectangular_domain(PROBLEM, BOUNDARY, MATERIAL, h, view_mesh=False, mes
     return mesh_data
 
 
-def mesh_rectangular_pml_domain(PROBLEM, BOUNDARY, MATERIAL, h, view_mesh=False, mesh_info=False, auto_save=True):
+def mesh_rectangular_pml_domain(PROBLEM, PML_DESIGN, BOUNDARY, MATERIAL, h, view_mesh=False, mesh_info=False, auto_save=True):
     mesh_data = {}
     TRIANGLE_TYPE = 2
 
@@ -94,8 +94,8 @@ def mesh_rectangular_pml_domain(PROBLEM, BOUNDARY, MATERIAL, h, view_mesh=False,
     factory = gmsh.model.occ
 
     # Dimensões do domínio 
-    L = PROBLEM['L']            # Espessura da PML
-    x0 = PROBLEM['Lx'] / 2      # Fronteira interna da PML
+    L = PML_DESIGN['L']         # Espessura da PML
+    x0 = PML_DESIGN['x0']       # Fronteira interna da PML
     xa, xb = x0, x0 + L         # Fronteiras externas da PML
 
     # Criar regiões absorvedoras, omega_PML

@@ -8,7 +8,7 @@ from ..spatialDiscretization import *
 
 
 class Maxwell2D(SpatialDiscretization):
-    def __init__(self, n_order: int, mesh: Mesh2D, fluxType="Upwind"):
+    def __init__(self, n_order: int, mesh: Mesh2D, fluxType="Upwind", pml_design=None):
         assert n_order > 0
         assert mesh.number_of_elements() > 0
 
@@ -37,24 +37,25 @@ class Maxwell2D(SpatialDiscretization):
         self.rx, self.sx, self.ry, self.sy, self.jacobian = geometricFactors(
             self.x, self.y, self.Dr, self.Ds)
         
+        self.nx, self.ny, sJ = normals(self.x, self.y, self.Dr, self.Ds, n_order)
+        
         fmask, _, _, _ = buildFMask(n_order)
-
-        self.nx, self.ny, sJ = normals( self.x, self.y, self.Dr, self.Ds, n_order )
         self.f_scale = sJ/self.jacobian[fmask.ravel('F')]
 
         self.buildMaps()
 
         # Build PML fields
-        self.sigma_x, self.sigma_y, self.dsigma_dx, self.dsigma_dy = self.evaluate_sigma_fields(
-            self.x, self.y,
-            x_limit=1.0,
-            y_limit=1.0,
-            sigma0_x=-np.log(1E-4),
-            sigma0_y=-np.log(1E-4),
-            p=2
-        )
+        if pml_design is not None:
+            self.sigma_x, self.sigma_y, self.dsigma_dx, self.dsigma_dy = self.evaluate_sigma_fields(
+                self.x, self.y, pml_design)
+        else:
+            self.sigma_x = np.zeros_like(self.x)
+            self.sigma_y = np.zeros_like(self.y)
+            self.dsigma_dx = np.zeros_like(self.x)
+            self.dsigma_dy = np.zeros_like(self.y)
+            
 
-    def evaluate_sigma_fields(self, x, y, x_limit, y_limit, sigma0_x, sigma0_y, p=2):
+    def evaluate_sigma_fields(self, x, y, pml_design):
         """
         Avalia os campos σx(x) e σy(y) para as regiões de PML.
         Parâmetros:
@@ -66,29 +67,37 @@ class Maxwell2D(SpatialDiscretization):
         - sigma_x, sigma_y: arrays com os valores ponto a ponto para cada elemento.
         - dsigma_dx, dsigma_dy: derivadas dos campos σx e σy.
         """
-        # σx(x), σy(y)
+        # σx(x), σy(y) e suas derivadas
         sigma_x = np.zeros_like(x)
         sigma_y = np.zeros_like(y)
-
-        # Derivadas: assumindo funções contínuas em x e y
         dsigma_dx = np.zeros_like(x)
         dsigma_dy = np.zeros_like(y)
 
+        # Valor inicial e perfil PML
+        sigma0_x = -np.log(pml_design['R'])
+        sigma0_y = sigma0_x
+        p = pml_design['pml_order']
+
+        # Verifica se os limites são válidos
+        x0, y0 = pml_design['x0'], pml_design['x0']
+        if x0 <= 0 or y0 <= 0:
+            raise ValueError("Os limites x_limit e y_limit devem ser positivos.")
+
         # σ^x(x)
-        x_right = x >= x_limit
-        x_left = x <= -x_limit
-        sigma_x[x_right] = sigma0_x * (x[x_right] - x_limit)**p
-        sigma_x[x_left]  = sigma0_x * (x[x_left] + x_limit)**p
-        dsigma_dx[x_right] = p * sigma0_x * (x[x_right] - x_limit)**(p - 1)
-        dsigma_dx[x_left]  = p * sigma0_x * (x[x_left] + x_limit)**(p - 1)
+        x_r = x >= x0
+        x_l = x <= -x0
+        sigma_x[x_r] = sigma0_x * (x[x_r] - x0)**p
+        sigma_x[x_l]  = sigma0_x * (x[x_l] + x0)**p
+        dsigma_dx[x_r] = p * sigma0_x * (x[x_r] - x0)**(p - 1)
+        dsigma_dx[x_l]  = p * sigma0_x * (x[x_l] + x0)**(p - 1)
 
         # σ^y(y)
-        y_top = y >= y_limit
-        y_bottom = y <= -y_limit
-        sigma_y[y_top]    = sigma0_y * (y[y_top] - y_limit)**p
-        sigma_y[y_bottom] = sigma0_y * (y[y_bottom] + y_limit)**p
-        dsigma_dy[y_top]    = p * sigma0_y * (y[y_top] - y_limit)**(p - 1)
-        dsigma_dy[y_bottom] = p * sigma0_y * (y[y_bottom] + y_limit)**(p - 1)
+        y_t = y >= y0
+        y_b = y <= -y0
+        sigma_y[y_t]    = sigma0_y * (y[y_t] - y0)**p
+        sigma_y[y_b] = sigma0_y * (y[y_b] + y0)**p
+        dsigma_dy[y_t]    = p * sigma0_y * (y[y_t] - y0)**(p - 1)
+        dsigma_dy[y_b] = p * sigma0_y * (y[y_b] + y0)**(p - 1)
 
         return sigma_x, sigma_y, dsigma_dx, dsigma_dy
     
@@ -367,8 +376,8 @@ class Maxwell2D(SpatialDiscretization):
 
         if self.fluxType == "Upwind":
             ndotdH = self.nx * dHx + self.ny * dHy
-            flux_Hx_Two_Normal += ndotdH * self.nx
-            flux_Hy_Two_Normal += ndotdH * self.ny
+            flux_Hx_Two_Normal += ndotdH * self.nx - dHx
+            flux_Hy_Two_Normal += ndotdH * self.ny - dHy
         elif self.fluxType == "Centered":
             pass
         else:
@@ -446,20 +455,12 @@ class Maxwell2D(SpatialDiscretization):
         rhs_Hx = -rhs_Ezy  - self.sigma_y * (2 * Hx + Py) + np.matmul(self.lift, self.f_scale * flux_Hx)/2.0
         rhs_Hy =  rhs_Ezx  - self.sigma_x * (2 * Hy + Px) + np.matmul(self.lift, self.f_scale * flux_Hy)/2.0
         rhs_Ez =  rhs_CuHz - self.dsigma_dx * Qx + self.dsigma_dy * Qy + np.matmul(self.lift, self.f_scale * flux_Ez)/2.0
-        rhs_Px = self.sigma_x * Hy
-        rhs_Py = self.sigma_y * Hx
+        rhs_Px =  self.sigma_x * Hy
+        rhs_Py =  self.sigma_y * Hx
         rhs_Qx = -self.sigma_x * Qx - Hy
         rhs_Qy = -self.sigma_y * Qy - Hx
 
-        return {
-            'Hx': rhs_Hx,
-            'Hy': rhs_Hy,
-            'Ez': rhs_Ez,
-            'Px': rhs_Px,
-            'Py': rhs_Py,
-            'Qx': rhs_Qx,
-            'Qy': rhs_Qy
-        }
+        return {'Hx': rhs_Hx, 'Hy': rhs_Hy, 'Ez': rhs_Ez, 'Px': rhs_Px, 'Py': rhs_Py, 'Qx': rhs_Qx, 'Qy': rhs_Qy}
 
     def computeRHSStiffness(self, fields):
         # Compute the RHS for the stiffness matrix
@@ -473,11 +474,7 @@ class Maxwell2D(SpatialDiscretization):
         rhs_Hy_stiffness =  rhs_Ezx
         rhs_Ez_stiffness =  rhs_CuHz 
 
-        return {
-            'Hx': rhs_Hx_stiffness,
-            'Hy': rhs_Hy_stiffness,
-            'Ez': rhs_Ez_stiffness, 
-        }
+        return {'Hx': rhs_Hx_stiffness, 'Hy': rhs_Hy_stiffness, 'Ez': rhs_Ez_stiffness}
     
     def computeRHSZeroNormal(self, fields):
         Hx = fields['Hx']
