@@ -30,11 +30,11 @@ def test_pec():
     # ax.triplot(sp.mesh.getTriangulation(), c='k', lw=1.0)
     # plt.show()
 
-    for _ in range(40):       
-        sp.plot_field(N, driver['Ez'])
-        plt.pause(0.1)
-        driver.step()
-        plt.cla()
+    # for _ in range(40):       
+    #     sp.plot_field(N, driver['Ez'])
+    #     plt.pause(0.1)
+    #     driver.step()
+    #     plt.cla()
 
     ez_expected = resonant_cavity_ez_field(sp.x, sp.y, driver.timeIntegrator.time)
     R = np.corrcoef(ez_expected, driver['Ez'])

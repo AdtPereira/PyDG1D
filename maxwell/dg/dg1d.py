@@ -6,11 +6,7 @@ from .mesh1d import Mesh1D
 
 
 class DG1D(SpatialDiscretization):
-    def __init__(self, n_order: int, mesh: Mesh1D, fluxPenalty=1.0):
-        '''
-        fluxPenalty is a real in [0, 1]. A value of 0.0 means no penalty
-        which is equivalent to a centered flux. 1.0 means full upwinding.
-        '''
+    def __init__(self, n_order: int, mesh: Mesh1D, fluxPenalty=1.0, epsilon=None,sigma=None):
         SpatialDiscretization.__init__(self, mesh)
         
         assert n_order > 0
@@ -24,8 +20,24 @@ class DG1D(SpatialDiscretization):
             raise ValueError("Boundaries must be of the same type.")
 
 
-        # Set up material parameters
-        self.epsilon = np.ones(mesh.number_of_elements())
+        # Epsilon implementation in 1D
+        if epsilon is None:
+            self.epsilon = np.ones(mesh.number_of_elements())
+        elif len(epsilon) != mesh.number_of_elements():
+            raise ValueError("The dimensions of the permittivity vector must align with the number of elements in the mesh.")
+        else:          
+            self.epsilon = np.array(epsilon)
+
+
+        # Sigma implementation necessary for J for 1D
+        if sigma is None:
+            self.sigma = np.zeros(mesh.number_of_elements())
+        elif len(sigma) != mesh.number_of_elements():
+            raise ValueError("The dimensions of the charge density vector must align with the number of elements in the mesh.")
+        else:          
+            self.sigma = np.array(sigma)       
+        
+        
         self.mu = np.ones(mesh.number_of_elements())
 
         self.x = nodes_coordinates(n_order, mesh.EToV, mesh.vx)
@@ -74,6 +86,7 @@ class DG1D(SpatialDiscretization):
         E = np.zeros([self.number_of_nodes_per_element(),
                       self.mesh.number_of_elements()])
         H = np.zeros(E.shape)
+
 
         return {"E": E, "H": H}
 
@@ -138,12 +151,15 @@ class DG1D(SpatialDiscretization):
     def computeRHSE(self, fields):
         E = fields['E']
         H = fields['H']
+        J = np.zeros((self.number_of_nodes_per_element(), self.mesh.number_of_elements()))
+
+        J[:, :] = E * self.sigma
 
         flux_E = self.computeFluxE(E, H)
         rhs_drH = np.matmul(self.diff_matrix, H)
         rhsE = 1/self.epsilon * \
             (np.multiply(-1*self.rx, rhs_drH) +
-             np.matmul(self.lift, self.f_scale * flux_E))
+             np.matmul(self.lift, self.f_scale * flux_E)-J) 
 
         return rhsE
 
@@ -155,7 +171,9 @@ class DG1D(SpatialDiscretization):
         rhs_drE = np.matmul(self.diff_matrix, E)
         rhsH = 1/self.mu * (np.multiply(-1*self.rx, rhs_drE) +
                             np.matmul(self.lift, self.f_scale * flux_H))
+        
         return rhsH
+
 
     def computeRHS(self, fields):
         rhsE = self.computeRHSE(fields)
