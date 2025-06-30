@@ -1,6 +1,5 @@
-# %%
 import gmsh
-
+import numpy as np
 
 # %% [markdown]
 # # Gmsh application programming interface (API)
@@ -61,42 +60,64 @@ def get_node_coordinates():
     nodes = [(nodeCoords[i], nodeCoords[i + 1]) for i in range(0, len(nodeCoords), 3)]
     return nodes
 
-# %% [markdown]
-# ### ``gmsh/model/mesh/getElements``
-# 
-# > Get the elements classified on the entity of dimension `dim` and tag ``tag``. If ``tag`` < 0, get the elements for all entities of dimension ``dim``. If ``dim`` and ``tag`` are negative, get all the elements in the mesh. ``elementTypes`` contains the MSH types of the elements (e.g. ``2`` for 3-node triangles: see ``getElementProperties`` to obtain the properties for a given element type). ``elementTags`` is a vector of the same length as ``elementTypes``; each entry is a vector containing the tags (unique, strictly positive identifiers) of the elements of the corresponding type. ``nodeTags`` is also a vector of the same length as ``elementTypes``; each entry is a vector of length equal to the number of elements of the given type times the number N of nodes for this type of element, that contains the node tags of all the elements of the given type, concatenated: [e1n1, e1n2, ..., e1nN, e2n1, ...].
-# 
-# > Input: ``dim`` = -1 (integer), ``tag`` = -1 (integer)
-# > Output: ``elementTypes`` (vector of integers), ``elementTags`` (vector of vectors of sizes), ``nodeTags`` (vector of vectors of sizes)
-# > Return: -
-# 
-# ### `gmsh/model/mesh/getElementProperties`
-# 
-# > Get the properties of an element of type `elementType`: its name (``elementName``), dimension (``dim``), order (``order``), number of nodes (``numNodes``), local coordinates of the nodes in the reference element (``localNodeCoord`` vector, of length ``dim`` times ``numNodes``) and number of primary (first order) nodes (``numPrimaryNodes``).
-# 
-# > Input: ``elementType`` (integer)  
-# > Output: ``elementName`` (string), ``dim`` (integer), ``order`` (integer), ``numNodes`` (integer), ``localNodeCoord`` (vector of doubles), ``numPrimaryNodes`` (integer)  
-# > Return: -
-
-# %% [markdown]
-# # `get_conn()`
 
 # %%
-def get_conn():
+def get_EToV(dim, index_based=1):
+    """
+    # ### ``gmsh/model/mesh/getElements``
+    # 
+    # > Get the elements classified on the entity of dimension `dim` and tag ``tag``. If ``tag`` < 0, 
+    #   get the elements for all entities of dimension ``dim``. If ``dim`` and ``tag`` are negative, 
+    #   get all the elements in the mesh. ``elementTypes`` contains the MSH types of the elements 
+    #   (e.g. ``2`` for 3-node triangles: see ``getElementProperties`` to obtain the properties for 
+    #   a given element type). 
+    # 
+    #   ``elementTags`` is a vector of the same length as ``elementTypes``; 
+    #   each entry is a vector containing the tags (unique, strictly positive identifiers) of the 
+    #   elements of the corresponding type. ``nodeTags`` is also a vector of the same length as 
+    #   ``elementTypes``; each entry is a vector of length equal to the number of elements of the 
+    #   given type times the number N of nodes for this type of element, that contains the node tags 
+    #   of all the elements of the given type, concatenated: [e1n1, e1n2, ..., e1nN, e2n1, ...].
+    # 
+    # > Input: ``dim`` = -1 (integer), ``tag`` = -1 (integer)
+    # > Output: ``elementTypes`` (vector of integers), ``elementTags`` (vector of vectors of sizes), 
+    #           ``nodeTags`` (vector of vectors of sizes)
+    # > Return: -
+    # 
+    # ### `gmsh/model/mesh/getElementProperties`
+    # 
+    # > Get the properties of an element of type `elementType`: its name (``elementName``), 
+    #   dimension (``dim``), order (``order``), number of nodes (``numNodes``), local coordinates 
+    #   of the nodes in the reference element (``localNodeCoord`` vector, of length ``dim`` times 
+    #   ``numNodes``) and number of primary (first order) nodes (``numPrimaryNodes``).
+    # 
+    # > Input: ``elementType`` (integer)  
+    # > Output: ``elementName`` (string), ``dim`` (integer), ``order`` (integer), ``numNodes`` (integer), 
+    #           ``localNodeCoord`` (vector of doubles), ``numPrimaryNodes`` (integer)  
+    # > Return: -
+    """
     # Obter os elementos da malha
-    elemTypes, elemTags, elemNodeTags = gmsh.model.mesh.getElements(dim=2)
-    conn = []
+    elemTypes, elemTags, elemNodeTags = gmsh.model.mesh.getElements(dim)
+    EToV = []
 
     for elemType, elemNode in zip(elemTypes, elemNodeTags):
         # Obter as propriedades do elemento
-        name, _, _, nodes_per_element, _, _ = gmsh.model.mesh.getElementProperties(elemType)
+        _, _, _, nodes_per_element, _, _ = gmsh.model.mesh.getElementProperties(elemType)
         numElements = len(elemNode) // nodes_per_element
+        
+        # Para cada elemento, extrair os índices dos vértices e converter para int
         for i in range(numElements):
             conn_i = elemNode[nodes_per_element * i: nodes_per_element * (i + 1)]
-            conn.append(conn_i)
+            EToV.append([int(tag) for tag in conn_i])
 
-    # Retornar a matriz de conectividade com listas para cada elemento
-    return [element.tolist() for element in conn]
+    # Se index_based for False, converter os índices para base 0
+    if not index_based:
+        EToV = [np.array(conn) - 1 for conn in EToV]
+
+    # Retornar a matriz de conectividade. Dim: K x N
+    # Kx4 para tetraedros; Kx3 para triângulos)
+    return np.array(EToV, dtype=int)  
+
 
 # %% [markdown]
 # # `get_cell_data()`
@@ -138,6 +159,7 @@ def get_cell_data(MATERIAL, dim=2):
             }
 
     return cell_data
+
 
 # %% [markdown]
 # # `get_new_cell_data()`
@@ -211,6 +233,7 @@ def get_new_cell_data(MATERIAL, problem_dim):
                     
     return cell_data
 
+
 # %% [markdown]
 # # `get_boundary_data()`
 
@@ -270,81 +293,77 @@ def get_boundary_data(BOUNDARY, problem_dim):
 
     return boundary_data
 
-# %% [markdown]
-# # `get_nodes_data()`
 
 # %%
-def get_nodes_data(BOUNDARY, problem_dim):
+def get_nodes_data(dim, BOUNDARY=None, INTERFACES=None):
     # 1. Dicionário para Mapeamento inicial de nós:
-    # Todos os nós começam com a condição de contorno "Free" e valor None.
     NodeTags, NodeCoords, _ = gmsh.model.mesh.getNodes()
-    node_mapping = {tag: {'tag': None, 'type': 'Free', 'value': None, 'name': 'free_node'}
-                    for tag in NodeTags}
 
-    # 2. Atualização do mapeamento de nós:
-    # Para cada condição de contorno em BOUNDARY, os nós associados ao grupo físico correspondente 
+    # 2. Converte os NodeTags em inteiros nativos
+    NodeTags = NodeTags.astype(np.uint64)
+    NodeTags = [int(tag) for tag in NodeTags]
+
+    # 2.1 Todos os nós começam com a condição de contorno "Free" e valor None.
+    node_bc_map = {
+        tag:{
+            'tag': None,
+            'type': 'Free',
+            'value': None,
+            'name': 'free_node'
+        }
+        for tag in NodeTags
+    }
+
+    # 3. Atualização do mapeamento de nós:
+    # 3.1 Para cada condição de contorno em BOUNDARY, os nós associados ao grupo físico correspondente 
     # são atualizados com o tipo (type) e valor (value) dessa condição.
-    for bc in BOUNDARY:
-        # Obtenha os nós associados ao grupo físico especificado no bc
-        bc_NodeTags, _ = gmsh.model.mesh.getNodesForPhysicalGroup(problem_dim-1, tag=bc['tag'])
-        
-        # Atualiza o mapeamento de nós com a condição de contorno correspondente
-        for node in bc_NodeTags:
-            node_mapping[node] = {
-                'tag': bc['tag'], 'type': bc['type'], 'value': bc['value'], 'name': bc['name']}
-
-    # 3. Estrutura final:
-    # A lista dict_nodes contém informações completas sobre cada nó, incluindo suas coordenadas 
-    # globais e as condições de contorno associadas.
-    nodes_data = {
-        node: {"xg": (NodeCoords[3*i], NodeCoords[3*i + 1], NodeCoords[3*i + 2]),
-                "bc": node_mapping[node]} 
-        for i, node in enumerate(NodeTags)}
-
-    return nodes_data
-
-# %% [markdown]
-# # `get_new_nodes_data()`
-
-# %%
-def get_new_nodes_data(BOUNDARY, INTERFACES, dim=1):
-    # 1. Dicionário para Mapeamento inicial de nós:
-    # Todos os nós começam com a condição de contorno "Free" e valor None.
-    NodeTags, NodeCoords, _ = gmsh.model.mesh.getNodes()
-    node_bc_map = {tag: {'tag': None, 'type': 'Free', 'value': None, 'name': 'free_node'}
-                    for tag in NodeTags}
-
-    # 2. Atualização do mapeamento de nós:
-    # Para cada condição de contorno em BOUNDARY, os nós associados ao grupo físico correspondente 
+    if BOUNDARY is not None:
+        for bc in BOUNDARY:
+            # Obtenha os nós associados ao grupo físico especificado no bc
+            condition_NodeTags, _ = gmsh.model.mesh.getNodesForPhysicalGroup(dim, tag=bc['tag'])
+            
+            # Atualiza o mapeamento de nós com a condição de contorno correspondente
+            for node in condition_NodeTags:
+                node_bc_map[node] = {
+                    'tag': bc['tag'],
+                    'type': bc['type'],
+                    'value': bc['value'],
+                    'name': bc['name']
+                }
+    
+    # 3.2 Para cada condição de contorno em INTERFACES, os nós associados ao grupo físico correspondente 
     # são atualizados com o tipo (type) e valor (value) dessa condição.
-    for bc in BOUNDARY:
-        # Obtenha os nós associados ao grupo físico especificado no bc
-        condition_NodeTags, _ = gmsh.model.mesh.getNodesForPhysicalGroup(dim, tag=bc['tag'])
-        
-        # Atualiza o mapeamento de nós com a condição de contorno correspondente
-        for node in condition_NodeTags:
-            node_bc_map[node] = {'tag': bc['tag'], 'type': bc['type'], 'value': bc['value'], 'name': bc['name']}
+    if INTERFACES is not None:
+        for bc in INTERFACES:
+            # Obtenha os nós associados ao grupo físico especificado no bc
+            condition_NodeTags, _ = gmsh.model.mesh.getNodesForPhysicalGroup(dim, tag=bc['tag'])
+            
+            # Atualiza o mapeamento de nós com a condição de contorno correspondente
+            for node in condition_NodeTags:
+                node_bc_map[node] = {
+                    'tag': bc['tag'],
+                    'type': bc['type'],
+                    'value': bc['value'],
+                    'name': bc['name']
+                }
 
-    # Para cada condição de contorno em INTERFACES, os nós associados ao grupo físico correspondente 
-    # são atualizados com o tipo (type) e valor (value) dessa condição.
-    for bc in INTERFACES:
-        # Obtenha os nós associados ao grupo físico especificado no bc
-        condition_NodeTags, _ = gmsh.model.mesh.getNodesForPhysicalGroup(dim, tag=bc['tag'])
-        
-        # Atualiza o mapeamento de nós com a condição de contorno correspondente
-        for node in condition_NodeTags:
-            node_bc_map[node] = {'tag': bc['tag'], 'type': bc['type'], 'value': bc['value'], 'name': bc['name']}
-
-    # 3. Estrutura final:
+    # 4. Estrutura final:
     # A lista dict_nodes contém informações completas sobre cada nó, incluindo suas coordenadas 
     # globais e as condições de contorno associadas.
     dict_nodes = {
-        node: {
-            "xg": (NodeCoords[3*i], NodeCoords[3*i + 1], NodeCoords[3*i + 2]),
-            "bc": node_bc_map[node]} 
-        for i, node in enumerate(NodeTags)}
+        int(node): {
+            "xg": (
+                float(NodeCoords[3*i]),
+                float(NodeCoords[3*i + 1]),
+                float(NodeCoords[3*i + 2])
+            ),
+            "bc": node_bc_map[int(node)]
+        } 
+        for i, node in enumerate(NodeTags)
+    }
 
     return dict_nodes
+
 
 # %% [markdown]
 # # `get_edge_data()`
@@ -387,6 +406,7 @@ def get_edge_data():
     sorted_dict_edges = {key: edges_data[key] for key in sorted(edges_data.keys())}
     
     return sorted_dict_edges
+
 
 # %% [markdown]
 # # `get_new_edge_data()`
@@ -447,20 +467,22 @@ def get_new_edge_data(BOUNDARY, problem_dim):
 
     return edge_data
 
-# %% [markdown]
-# ### ``gmsh/model/getBoundary``
-# 
-# > Get the boundary of the model entities dimTags, given as a vector of (dim, tag) pairs. Return in outDimTags the boundary of the individual entities (if combined is false) or the boundary of the combined geometrical shape formed by all input entities (if combined is true). Return tags multiplied by the sign of the boundary entity if oriented is true. Apply the boundary operator recursively down to dimension 0 (i.e. to points) if recursive is true.
-# 
-# > Input: dimTags (vector of pairs of integers), combined = True (boolean), oriented = True (boolean), recursive = False (boolean)
-# > Output: outDimTags (vector of pairs of integers)
-# > Return: -
-
-# %% [markdown]
-# ## `get_boundary_nodes()` 
 
 # %%
 def get_boundary_nodes():
+    """
+    # > Get the boundary of the model entities dimTags, given as a vector of (dim, tag) pairs. 
+    #   Return in outDimTags the boundary of the individual entities (if combined is false) or 
+    #   the boundary of the combined geometrical shape formed by all input entities (if combined 
+    #   is true). Return tags multiplied by the sign of the boundary entity if oriented is true. 
+    # 
+    #   Apply the boundary operator recursively down to dimension 0 (i.e. to points) if recursive is true.
+    # 
+    # > Input: dimTags (vector of pairs of integers), combined = True (boolean), oriented = True (boolean), recursive = False (boolean)
+    # > Output: outDimTags (vector of pairs of integers)
+    # > Return: -
+    """
+
     # Obter os grupos físicos
     physical_groups = gmsh.model.getPhysicalGroups()
     boundary_nodes = set()
@@ -483,18 +505,16 @@ def get_boundary_nodes():
 
     return sorted(boundary_nodes)
 
-# %% [markdown]
-# # `basic_info()`
 
 # %%
 def basic_info(dim=2):
-
     # ---------------------------------------------------------------------------------
     #  Reduced version of the Gmsh Python extended tutorial 1
     #  https://gitlab.onelab.info/gmsh/gmsh/blob/gmsh_4_13_1/tutorials/python/x1.py#L33
     # ---------------------------------------------------------------------------------
 
     # Print the model name and dimension:
+    print("\nBasic Info: \n---------------------------------")
     print('Model ' + gmsh.model.getCurrent() + ' (' +
         str(gmsh.model.getDimension()) + 'D)')
 
@@ -519,12 +539,9 @@ def basic_info(dim=2):
     print("Info     : %d edges in total" % len(edgeTags))
     print(f"Info     : %d {dim}-D elements in total" % total_elements)
 
-# %% [markdown]
-# # `complete_info()`
 
 # %%
 def complete_info():
-
     # ---------------------------------------------------------------------------------
     #  Reduced version of the Gmsh Python extended tutorial 1
     #  https://gitlab.onelab.info/gmsh/gmsh/blob/gmsh_4_13_1/tutorials/python/x1.py#L33
@@ -540,8 +557,7 @@ def complete_info():
     nodes_by_dim = {}
     elements_by_dim = {}  
 
-    print("\nComplete Info: \n---------------------------------")    
-
+    print("\nComplete Info: \n---------------------------------")
     for e in entities:
         # Dimension and tag of the entity:
         dim = e[0]
@@ -602,15 +618,14 @@ def complete_info():
                 str(numv) + " nodes in param coord: " + str(parv) + ")") 
             
     # Display node count by dimension
+    print("\n Resume: \n---------------------------------")
+    
     for dim, count in nodes_by_dim.items():
-        print(f"Resume     : {count} nodes in dimension {dim}")
+        print(f"   : {count} nodes in dimension {dim}")
 
-    # Display element count by dimension
     for dim, count in elements_by_dim.items():
-        print(f"Resume     : {count} elements in dimension {dim}")
+        print(f"   : {count} elements in dimension {dim}")
 
-# %% [markdown]
-# # `get_data()`
 
 # %%
 def get_data(FINITE_ELEMENT, BOUNDARY, MATERIAL, model, info_mode=False):
@@ -632,8 +647,6 @@ def get_data(FINITE_ELEMENT, BOUNDARY, MATERIAL, model, info_mode=False):
     gmsh.finalize()    
     return mesh_data
 
-# %% [markdown]
-# # `get_tetrahedra_data()`
 
 # %%
 def get_tetrahedra_data(FINITE_ELEMENT, BOUNDARY, MATERIAL, model):    
@@ -645,11 +658,25 @@ def get_tetrahedra_data(FINITE_ELEMENT, BOUNDARY, MATERIAL, model):
     # Structure Data
     mesh_data = {}
     mesh_data['cell'] = get_new_cell_data(MATERIAL, problem_dim=3)
-    mesh_data['nodes'] = get_nodes_data(BOUNDARY, problem_dim=2)
+    mesh_data['nodes'] = get_nodes_data(BOUNDARY, dim=2)
     # mesh_data['edges'] = get_edge_data()
 
     gmsh.finalize()    
     return mesh_data
+
+
+# %% 
+def extract_VX_VY_VZ(nodes_data):
+    # Ordena os nós pelo tag (ID do nó)
+    sorted_nodes = sorted(nodes_data.items())
+
+    # Extrai coordenadas ordenadas
+    VX = np.array([data["xg"][0] for _, data in sorted_nodes])
+    VY = np.array([data["xg"][1] for _, data in sorted_nodes])
+    VZ = np.array([data["xg"][2] for _, data in sorted_nodes])
+
+    return VX, VY, VZ
+ 
 
 # %% [markdown]
 # Conversão do arquivo Jupyter Notebook para um script Python: ``python -m nbconvert --to script name.ipynb``

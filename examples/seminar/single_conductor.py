@@ -5,8 +5,10 @@
 import os
 import sys
 
+
 # Adiciona a raiz do projeto ao PYTHONPATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..\..')))
+
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,16 +21,19 @@ from maxwell.integrators.LSERK4 import *
 from mesher.create_mesh import *
 from maxwell.utils import *
 
-BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': None, 'name': 'outermost_domain'}]
 
-PROBLEM = {'name': 'cem_4p9',
-    'folder_name': 'cem_4p9',
+PROBLEM = {'name': 'single_conductor',
+    'folder_name': 'single_conductor',
     'description': 'Análise espectral de um pulso gaussiano propagante em 2D',
-    'flux_type': 'Upwind',    # 'Upwind' or 'Centered'
-    'bc': "PEC",        # Condição de contorno do problema: Perfect Electric Conductor (PEC)
-    'cfl': 0.1,         # Número de Courant-Friedrichs-Lewy
-    'n_order': 3,       # Ordem polinomial dos elementos
-    't_final': 5.0      # Tempo final da simulação
+    'flux_type': 'Upwind',  # 'Upwind' or 'Centered'
+    'bc': "PEC",            # Condição de contorno do problema: Perfect Electric Conductor (PEC)
+    'cfl': 0.1,             # Número de Courant-Friedrichs-Lewy
+    'n_order': 3,           # Ordem polinomial dos elementos
+    't_final': 1.5,         # Tempo final da simulação
+    'num_snapshots': 9,     # Número de snapshots a serem coletados
+    'Lx': 2.0,              # Largura do domínio físico na direção x
+    'Ly': 2.0,              # Largura do domínio físico na direção y
+    'rc': 0.5               # Raio do círculo central (condutor)
 }
 
 
@@ -37,6 +42,8 @@ class SpectralAnalyzer:
         self.N = problem['n_order']
         self.L = 2*problem['Lx']
         self.t_final = problem['t_final']
+        self.num_snapshots = problem['num_snapshots']
+        self.t_list = np.linspace(0, self.t_final, problem['num_snapshots'])
         self.mesh = mesh
 
 
@@ -137,7 +144,7 @@ class SpectralAnalyzer:
             yk = y_nodes[:, k]
             mk = markers[k % len(markers)]
             ck = colors[k % len(colors)]
-            plt.scatter(xk, yk, marker=mk, facecolors='none', color=ck, s=4, label=f'e{k}')
+            plt.scatter(xk, yk, marker=mk, facecolors='none', color=ck, s=3, label=f'e{k}')
 
             # Centro do elemento
             va, vb, vc = EToV[k]
@@ -425,7 +432,7 @@ class SpectralAnalyzer:
         fig.suptitle(r'DG-FEM Solution for $E_z(x, y, t)$', fontsize=12)
 
 
-    def Plot_ez_transient_analysis(self, times, ez_values):
+    def plot_ez_transient_analysis(self, times, ez_values):
         """
         Plota a evolução temporal do campo elétrico Ez em um ponto específico.
 
@@ -527,54 +534,292 @@ class SpectralAnalyzer:
         plt.show()
 
 
-def maxwell_at_free_space(problem, Lx):
+    def plot_field_evolution_on_x_axis(self, sa, sp, x0, N_grid=500):
+        """
+        Monitora e plota o campo Ez ao longo do eixo x (y=0) em vários instantes de tempo,
+        com cada instante exibido em um subplot separado.
+
+        Parâmetros:
+        -----------
+        SpectralAnalyzer : object
+            Instância da classe que contém os métodos e parâmetros do problema.
+        sp : Maxwell2D
+            Objeto DG contendo a malha e as coordenadas dos pontos.
+        N_grid : int
+            Número de pontos ao longo do eixo x para a interpolação.
+        """
+        print("\n🚀 Iniciando simulação para monitorar Ez no eixo x (em subplots)...")
+
+        # --- Fase de Simulação ---
+        driver = MaxwellDriver(sp, CFL=PROBLEM['cfl'])
+        driver['Ez'][:] = sa.gaussian_pulse(sp.x, sp.y, 0)
+        # driver['Ez'][:] = SpectralAnalyzer.gaussian_pulse_derivative(sp.x, sp.y, 0)
+
+        print(f"\n🌐 Inicializando o driver Maxwell com CFL = {PROBLEM['cfl']:.2f} e dt = {1E3*driver.dt:.1f} ms")
+
+        ez_snapshots = []
+        for t in self.t_list:
+            driver.run_until(t)
+            ez_snapshots.append(driver['Ez'].copy())
+            print(f"  -> Snapshot capturado em t = {1E3*t:.0f} ms")
+
+        # --- Fase de Extração e Pré-cálculo ---
+        x_nodes = driver.sp.x.ravel(order='F')
+        y_nodes = driver.sp.y.ravel(order='F')
+        x_min, x_max = x_nodes.min(), x_nodes.max()
+        x_line = np.linspace(x_min, x_max, N_grid)
+        points_on_x_axis = np.column_stack((x_line, np.zeros_like(x_line)))
+
+        # Interpola todos os dados primeiro para encontrar os limites globais do eixo y.
+        # Isso garante que todos os subplots tenham a mesma escala vertical.
+        all_ez_on_axis = []
+        for Ez_snapshot in ez_snapshots:
+            u_snapshot = Ez_snapshot.ravel(order='F')
+            ez_on_axis = griddata(points=(x_nodes, y_nodes),
+                                  values=u_snapshot,
+                                  xi=points_on_x_axis,
+                                  method='cubic')
+            all_ez_on_axis.append(ez_on_axis)
+        
+        # Define os limites verticais (y-axis)
+        vmin = np.nanmin([np.nanmin(data) for data in all_ez_on_axis])
+        vmax = np.nanmax([np.nanmax(data) for data in all_ez_on_axis])
+        padding = (vmax - vmin) * 0.05 # Adiciona um pequeno preenchimento
+        y_limits = (vmin - padding, vmax + padding)
+
+
+        # --- Fase de Plotagem ---
+        ncols = int(np.ceil(np.sqrt(self.num_snapshots)))
+        nrows = int(np.ceil(self.num_snapshots / ncols))
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3.5 * nrows), 
+                                 constrained_layout=True, sharex=True, sharey=True)
+        axes = axes.ravel()
+
+        fig.suptitle(r'Evolução do Campo $E_z$ ao longo do eixo x ($y=0$)', fontsize=16)
+
+        for i, (ez_data, t) in enumerate(zip(all_ez_on_axis, self.t_list)):
+            ax = axes[i]
+
+            # >>> NOVIDADE: Colorir as regiões da PML <<<
+            # Colore a PML da direita (x > interface)
+            ax.axvspan(x0, x_max, color='gray', alpha=0.3, zorder=0)
+            # Colore a PML da esquerda (x < -interface)
+            ax.axvspan(x_min, -x0, color='gray', alpha=0.3, zorder=0)
+
+            ax.plot(x_line, ez_data, color='dodgerblue')
+            ax.set_title(f"t = {1E3*t:.0f} ms")
+            ax.grid(True, linestyle='--', alpha=0.6)
+            ax.set_ylim(y_limits) # Aplica os mesmos limites a todos os subplots
+
+        # Configura rótulos comuns para a figura inteira
+        fig.supxlabel('Posição x (m)')
+        fig.supylabel(r'$E_z$ (V/m)')
+
+        # Desativa eixos extras que não estão sendo usados
+        for j in range(i + 1, len(axes)):
+            axes[j].axis('off')
+        
+        print("\n✅ Gráfico com subplots gerado com sucesso.")
+
+
+def plotar_condutividade_por_elemento(sp, ax=None, **kwargs):
     """
-    Monitors and plots the electric field Ez at the PML interface (x=1, y=0) over time.
+    Plota um mapa de cores do perfil de condutividade definido por elemento (sigma_c).
+
+    A função mapeia o valor de condutividade de cada elemento para todos os nós
+    de visualização dentro dele, criando um mapa de cores preciso da propriedade
+    constante por elemento.
+
+    Parâmetros:
+    -----------
+    sp : object
+        O objeto de espacialização (ex: Maxwell2D) que contém a malha e os dados.
+    ax : matplotlib.axes.Axes, opcional
+        O eixo onde o gráfico será desenhado. Se None, cria uma nova figura.
+    **kwargs :
+        Argumentos extras para a função `tricontourf` (ex: cmap, levels).
     """
-    print(f"\n🌐 Inicializando o analisador espectral para {problem['name']} no espaço livre ...")
-    # Define o domínio físico
-    material = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}] 
-    problem['Lx'], problem['Ly'] = Lx, Lx
-    mesh_data = mesh_rectangular_domain(problem, BOUNDARY, material, h=0.5, view_mesh=False)
-    mesh_domain = Mesh2D(vx=mesh_data['VX'], vy=mesh_data['VY'], EToV=mesh_data['EToV'], boundary_label=problem['bc'])
-    
-    # Initialize the solver
-    sp = Maxwell2D(n_order=problem['n_order'], mesh=mesh_domain, fluxType=problem['flux_type'])
+    # Verifica se há um eixo, se não, cria um novo
+    show_plot = False
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 7))
+        show_plot = True
 
-    return mesh_domain, sp
+    # Nível de refinamento para a visualização
+    Nout = sp.n_order
+
+    # O vetor sp.sigma (sigma_c) tem formato (K,). Precisamos expandi-lo para o
+    # formato de campo (Np, K) para usar a rotina de plotagem.
+    Np = sp.number_of_nodes_per_element()
+    # np.tile repete o vetor de condutividade para cada nó do elemento
+    sigma_field = np.tile(sp.sigma, (Np, 1))
+
+    # --- Lógica de visualização baseada em `plot_field` ---
+    # (Esta é a maneira correta de visualizar campos em malhas DG)
+
+    # Constrói grade igualmente espaçada no triângulo de referência
+    # (assumindo que as funções auxiliares estão disponíveis)
+    try:
+        r, s = xy_to_rs(*set_nodes_in_equilateral_triangle(sp.n_order))
+        rout, sout = xy_to_rs(*set_nodes_in_equilateral_triangle(Nout))
+        interp = vandermonde(sp.n_order, rout, sout) @ np.linalg.inv(vandermonde(sp.n_order, r, s))
+    except (ImportError, NameError):
+        # Fallback se as funções não estiverem no escopo - pode ser necessário adaptar
+        print("Aviso: Funções de interpolação não encontradas. Usando um fallback simples.")
+        # Este fallback é apenas uma simplificação e pode não ser preciso
+        rout, sout = np.linspace(-1, 1, 10), np.linspace(-1, 1, 10) # Placeholder
+        interp = np.eye(Np) # Placeholder
+        Nout = sp.n_order # Placeholder
+
+    # Interpola coordenadas e o campo sigma para os nós de plotagem
+    xout = interp @ sp.x
+    yout = interp @ sp.y
+    uout = interp @ sigma_field  # Usa o campo de sigma que criamos
+
+    # Constrói a triangulação para todos os nós de plotagem
+    # Usando Delaunay para robustez
+    from scipy.spatial import Delaunay
+    tri = Delaunay(np.vstack((rout, sout)).T).simplices
+    TRI = np.array([], dtype=int).reshape(0, 3)
+    Npout = len(rout)
+    for k in range(sp.mesh.number_of_elements()):
+        TRI = np.vstack((TRI, tri + k * Npout))
+
+    # Define opções padrão de plotagem
+    if 'levels' not in kwargs:
+        # Se os valores são discretos, `levels` ajuda a definir as fronteiras
+        unique_sigmas = np.unique(uout)
+        if len(unique_sigmas) < 20: # Bom para poucos valores de sigma
+             kwargs['levels'] = len(unique_sigmas)
+        else:
+             kwargs['levels'] = 20 # Padrão para muitos valores
+    if 'cmap' not in kwargs:
+        kwargs['cmap'] = 'turbo' # Um bom mapa de cores para distinguir regiões
+
+    # Renderiza o mapa de cores
+    im = ax.tricontourf(
+        xout.ravel('F'),
+        yout.ravel('F'),
+        uout.ravel('F'),
+        triangles=TRI,
+        **kwargs
+    )
+
+    # Adiciona rótulos e formatação
+    fig = ax.get_figure()
+    fig.colorbar(im, ax=ax, label=r"Condutividade $\sigma_c$ (S/m)")
+    ax.set_title(r'Mapa de Condutividade por Elemento ($\sigma_c$)')
+    ax.set_xlabel("Coordenada x (m)")
+    ax.set_ylabel("Coordenada y (m)")
+    ax.axis('equal')
+    ax.grid(True, linestyle='--', alpha=0.5)
+
+    if show_plot:
+        plt.show()
 
 
-def maxwell_at_pml_space(problem, L):
+def aplicar_condutividade(x_nodes, y_nodes, rc, sigma_condutor):
+    """
+    Aplica uma condutividade física aos elementos cujo baricentro está dentro
+    de um condutor circular central.
+
+    Esta função é projetada para métodos de elementos, como Galerkin Discontínuo (DG),
+    onde as propriedades são constantes por elemento.
+
+    Parâmetros:
+    ----------
+    x_nodes : np.ndarray
+        Array 2D de formato (Np, K) com as coordenadas x de todos os nós,
+        onde Np é o número de nós por elemento e K é o número de elementos.
+        (Corresponde a `self.x` na classe Maxwell2D).
+    y_nodes : np.ndarray
+        Array 2D de formato (Np, K) com as coordenadas y de todos os nós.
+        (Corresponde a `self.y` na classe Maxwell2D).
+    rc : float
+        O raio do condutor circular central.
+    sigma_condutor : float
+        O valor da condutividade elétrica (σ) a ser aplicado dentro do condutor.
+
+    Retorna:
+    -------
+    np.ndarray
+        Um array 1D de formato (K,), onde K é o número de elementos. Cada entrada
+        contém o valor da condutividade para o elemento correspondente.
+    """
+    # Garante que a entrada tenha o formato esperado (Np, K)
+    if x_nodes.ndim != 2 or y_nodes.ndim != 2:
+        raise ValueError("As entradas x_nodes e y_nodes devem ser arrays 2D de formato (Nós, Elementos).")
+
+    # Calcula o baricentro (centro geométrico) para cada elemento.
+    # A função np.mean com axis=0 calcula a média ao longo do eixo dos nós (Np),
+    # resultando em um array de formato (K,).
+    x_baricentros = np.mean(x_nodes, axis=0)
+    y_baricentros = np.mean(y_nodes, axis=0)
+
+    # O número de elementos é o tamanho do array de baricentros.
+    num_elementos = len(x_baricentros)
+
+    # Inicializa o array de condutividade com zeros.
+    sigma = np.zeros(num_elementos)
+
+    # Calcula o quadrado da distância de cada baricentro até a origem (0, 0).
+    distancia_quadrada = x_baricentros**2 + y_baricentros**2
+
+    # Cria uma máscara booleana para os elementos cujo baricentro está dentro do raio.
+    mascara_condutor = distancia_quadrada < rc**2
+
+    # Aplica o valor da condutividade a esses elementos.
+    sigma[mascara_condutor] = sigma_condutor
+
+    return sigma
+
+
+def maxwell_without_conductor(problem, L, h):
     """
     Monitors and plots the electric field Ez at the PML interface (x=1, y=0) over time.
     """
     print(f"\n🌐 Inicializando o analisador espectral para {problem['name']} truncado com PML ...")
-    # Define o domínio físico
-    material = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1},
-                {'tag': 301, 'name': 'PML_a','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1},
-                {'tag': 302, 'name': 'PML_b','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1},
-                {'tag': 303, 'name': 'PML_c','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1},
-                {'tag': 304, 'name': 'PML_d','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1},
-                {'tag': 401, 'name': 'PML_I','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1},
-                {'tag': 402, 'name': 'PML_II','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1},
-                {'tag': 403, 'name': 'PML_III','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1},
-                {'tag': 404, 'name': 'PML_IV','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]
     
     pml_project = {
         'x0': 1.0,          # Fronteira direita da PML
-        'L': 1.0,           # Largura da camada da PML
+        'L': L,             # Largura da camada da PML
         'pml_order': 2,     # Ordem polinomial da PML
         'R': 1E-4,          # Coeficiente de reflexão na interface da PML
     }
 
-    pml_project['L'] = L
-    
-    mesh_data = mesh_rectangular_pml_domain(problem, pml_project, BOUNDARY, material, h=0.3, view_mesh=False)
-    
+    mesh_data = mesh_single_conductor_domain(PROBLEM, pml_project, h, view_mesh=False)
     mesh_domain = Mesh2D(vx=mesh_data['VX'], vy=mesh_data['VY'], EToV=mesh_data['EToV'], boundary_label=problem['bc'])
+
+    sp = Maxwell2D(n_order=problem['n_order'], mesh=mesh_domain, fluxType=problem['flux_type'], sigma=None, pml_design=pml_project)
+    return mesh_domain, sp
+
+
+def maxwell_with_conductor(problem, L, h):
+    """
+    Monitors and plots the electric field Ez at the PML interface (x=1, y=0) over time.
+    """
+    print(f"\n🌐 Inicializando o analisador espectral para {problem['name']} truncado com PML ...")
     
-    # Initialize the solver
-    sp = Maxwell2D(n_order=problem['n_order'], mesh=mesh_domain, fluxType=problem['flux_type'], pml_design=pml_project)
+    pml_project = {
+        'x0': 1.0,          # Fronteira direita da PML
+        'L': L,             # Largura da camada da PML
+        'pml_order': 2,     # Ordem polinomial da PML
+        'R': 1E-4,          # Coeficiente de reflexão na interface da PML
+    }
+
+    mesh_data = mesh_single_conductor_domain(PROBLEM, pml_project, h, view_mesh=False)
+    mesh_domain = Mesh2D(vx=mesh_data['VX'], vy=mesh_data['VY'], EToV=mesh_data['EToV'], boundary_label=problem['bc'])
+
+    # Aplicar condutividade do condutor circular central
+    x_nodes, y_nodes = nodes_coordinates(problem['n_order'], mesh_domain)
+    sigma_core = aplicar_condutividade(x_nodes, y_nodes, problem['rc'], sigma_condutor=1E1)
+
+    sp = Maxwell2D(n_order=problem['n_order'], mesh=mesh_domain, fluxType=problem['flux_type'], sigma=sigma_core, pml_design=pml_project)
+
+    # 2. Plotar o mapa de condutividade do condutor (sigma_c)
+    plotar_condutividade_por_elemento(sp)
+
 
     return mesh_domain, sp
 
@@ -585,27 +830,12 @@ def transient_analysis(sp, mesh_domain, point=(1, 0), n_samples=500, n_snaps=9):
     """
     print(f"\n🌐 Inicializando o analisador espectral para {PROBLEM['name']} ...")
     sa = SpectralAnalyzer(PROBLEM, mesh_domain)
-    # sa.plot_collocation_points(show_ids=False, sigma_data=False)
+    sa.plot_collocation_points(show_ids=False, sigma_data=False)
+    sa.plot_field_evolution_on_x_axis(sa, sp, x0=1.0, N_grid=500)
 
     # 1. Inicializar o campo elétrico Ez 
     driver = MaxwellDriver(sp, CFL=PROBLEM['cfl'])
     driver['Ez'][:] = sa.gaussian_pulse(sp.x, sp.y, 0)
-    #driver['Ez'][:] = sa.gaussian_pulse_derivative(sp.x, sp.y, 0)
-
-    # # 2. Calcular o raio 'r' para cada nó da malha
-    # #    (adicionar um valor pequeno, epsilon, para evitar divisão por zero na origem)
-    # epsilon = 1e-12
-    # r = np.sqrt(sp.x**2 + sp.y**2) + epsilon
-
-    # # 3. Calcular Hx e Hy usando a relação correta
-    # #    Neste caso, a impedância eta = 1.0
-    # eta = 1.0
-    # Hx = (sp.y / r) * (Ez / eta)
-    # Hy = (-sp.x / r) * (Ez / eta)
-
-    # # 4. Atribuir os valores calculados aos campos do solver
-    # driver['Hx'][:] = Hx
-    # driver['Hy'][:] = Hy
 
     # Find the node closest to (x=1, y=0)
     x_point, y_point = point
@@ -686,18 +916,18 @@ def main() -> None:
     """Função principal para execução do script."""
     clear_terminal() 
            
-    # --- Calcular a solução numérica do campo incidente no ponto (x=1, y=0) ---
-    mesh_domain, sp = maxwell_at_free_space(PROBLEM, Lx=12.0)
+    # --- Calcular a solução numérica do campo incidente no ponto espaço livre ---
+    mesh_domain, sp = maxwell_without_conductor(PROBLEM, L=1.0, h=0.2)
     incident_t, ez_incident = transient_analysis(sp, mesh_domain)
 
-    # --- Calcular a solução numérica do campo total no ponto (x=1, y=0) ---
-    mesh_domain, sp = maxwell_at_pml_space(PROBLEM, L=1.0)
+    # --- Calcular a solução numérica do campo total no domínio físico ---
+    mesh_domain, sp = maxwell_with_conductor(PROBLEM, L=1.0, h=0.2)
     total_t, ez_total = transient_analysis(sp, mesh_domain)
 
-    # --- Calcular e plotar o coeficiente de reflexão ---
-    plot_fields(total_t, ez_total, incident_t, ez_incident)
-    plt.show()  # Exibe todos os gráficos pendentes
+    # --- Plotar o campo total e o campo incidente ---
+    plot_fields(total_t, ez_total, incident_t, ez_incident, point=(1, 0))
 
 
 if __name__ == '__main__':
     main()
+    plt.show()

@@ -26,11 +26,17 @@ class MaxwellDriver:
         if (sp.isStaggered()):
             self.dt = CFL * r_min / np.sqrt(sp.dimension())
         else:
-            if (sp.get_mesh().dimension == 1):
+            dimension = sp.get_mesh().dimension
+            if (dimension == 1):
                 self.dt = CFL * r_min * 2.0 / 3.0
-            elif (sp.get_mesh().dimension == 2):
+            elif (dimension == 2):
                 dtscale = sp.get_dt_scale()
-                self.dt = CFL * min(dtscale)*r_min*2.0/3.0
+                self.dt = CFL * min(dtscale) * r_min * 2.0 / 3.0
+            elif (dimension == 3):
+                dtscale = sp.get_dt_scale()
+                self.dt = CFL * min(dtscale) * r_min * 2.0 / 3.0
+            else:
+                raise ValueError(f"Dimensão da malha {dimension} não suportada para o cálculo de dt.")
 
         self.sp.dt = self.dt       
 

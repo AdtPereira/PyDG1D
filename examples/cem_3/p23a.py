@@ -102,7 +102,7 @@ def main() -> None:
     sigmas = np.where(
         (x_centers >= 0.0) & (x_centers <= 0.5), 1E-1, 0.0)
     
-        # Inicializa o espaço DG1D
+    # Inicializa o espaço DG1D
     sp = DG1D(
         n_order=N,
         mesh=mesh,

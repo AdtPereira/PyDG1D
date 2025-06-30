@@ -8,7 +8,7 @@ from ..spatialDiscretization import *
 
 
 class Maxwell2D(SpatialDiscretization):
-    def __init__(self, n_order: int, mesh: Mesh2D, fluxType="Upwind", pml_design=None):
+    def __init__(self, n_order: int, mesh: Mesh2D, fluxType="Upwind", epsilon=None, sigma=None, pml_design=None):
         assert n_order > 0
         assert mesh.number_of_elements() > 0
 
@@ -19,8 +19,24 @@ class Maxwell2D(SpatialDiscretization):
         self.mesh = mesh
         self.fluxType = fluxType
 
-        self.epsilon = np.ones(mesh.number_of_elements())
+        # Epsilon implementation
+        if epsilon is None:
+            self.epsilon = np.ones(mesh.number_of_elements())
+        elif len(epsilon) != mesh.number_of_elements():
+            raise ValueError("The dimensions of the permittivity vector must align with the number of elements in the mesh.")
+        else:          
+            self.epsilon = np.array(epsilon)
+        
+        # Mu implementation
         self.mu = np.ones(mesh.number_of_elements())
+
+        # Sigma implementation necessary for J
+        if sigma is None:
+            self.sigma = np.zeros(mesh.number_of_elements())
+        elif len(sigma) != mesh.number_of_elements():
+            raise ValueError("The dimensions of the charge density vector must align with the number of elements in the mesh.")
+        else:          
+            self.sigma = np.array(sigma) 
 
         r, s = xy_to_rs(*set_nodes_in_equilateral_triangle(n_order))
         self.mass = mass_matrix(n_order, r, s)
@@ -450,11 +466,15 @@ class Maxwell2D(SpatialDiscretization):
         rhs_Ezx, rhs_Ezy = grad(self.Dr, self.Ds, Ez, self.rx, self.sx, self.ry, self.sy)
         rhs_CuHz = curl(self.Dr, self.Ds, Hx, Hy, self.rx, self.sx, self.ry, self.sy)
 
+        # -------- Current Density J ----------
+        Jz = np.zeros((self.number_of_nodes_per_element(), self.mesh.number_of_elements()))
+        Jz[:, :] = Ez * self.sigma
+
         # -------- Termos extras da formulação PML ----------
         # missing material epsilon/mu
         rhs_Hx = -rhs_Ezy  - self.sigma_y * (2 * Hx + Py) + np.matmul(self.lift, self.f_scale * flux_Hx)/2.0
         rhs_Hy =  rhs_Ezx  - self.sigma_x * (2 * Hy + Px) + np.matmul(self.lift, self.f_scale * flux_Hy)/2.0
-        rhs_Ez =  rhs_CuHz - self.dsigma_dx * Qx + self.dsigma_dy * Qy + np.matmul(self.lift, self.f_scale * flux_Ez)/2.0
+        rhs_Ez =  rhs_CuHz - self.dsigma_dx * Qx + self.dsigma_dy * Qy + np.matmul(self.lift, self.f_scale * flux_Ez)/2.0 - Jz
         rhs_Px =  self.sigma_x * Hy
         rhs_Py =  self.sigma_y * Hx
         rhs_Qx = -self.sigma_x * Qx - Hy

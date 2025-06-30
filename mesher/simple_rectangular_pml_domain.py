@@ -71,8 +71,6 @@ print(f"  Tag {BOUNDARY[0]['tag']} ('{BOUNDARY[0]['name']}'): {tagList_inner}")
 gmsh.model.addPhysicalGroup(1, tagList_outer, tag=BOUNDARY[1]['tag'], name=BOUNDARY[1]['name'])
 print(f"  Tag {BOUNDARY[1]['tag']} ('{BOUNDARY[1]['name']}'): {tagList_outer}")
 
-# --- FIM DA CORREÇÃO ---
-
 # Adicionar grupos físicos para superfícies (Dim=2)
 print("\nGrupos físicos de Superfícies (Dim=2):")
 # Superfície 'free_space'

@@ -375,9 +375,11 @@ class Maxwell2D(SpatialDiscretization):
 
         flux_Hx, flux_Hy, flux_Ez = self.computeFlux(Hx, Hy, Ez)
 
+        # evaluate local spatial derivatives
         rhs_Ezx, rhs_Ezy = grad(
             self.Dr, self.Ds, Ez, self.rx, self.sx, self.ry, self.sy
         )
+        
         rhs_CuHz = curl(
             self.Dr, self.Ds, Hx, Hy, self.rx, self.sx, self.ry, self.sy
         )

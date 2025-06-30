@@ -9,7 +9,7 @@ ESTE SCRIPT UTILIZA CAMINHOS ABSOLUTOS E NÃO ALTERA O DIRETÓRIO DE TRABALHO
 EXECUÇÃO:
 cd C:\\git\\PyDG1D
 conda activate pyDG1D
-python examples\\cem_4p6.py
+python examples\\cem_5\\p6.py
 
 ══════════════════════════════════════════════════════════════════════════
 
@@ -70,76 +70,29 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..\..')
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.tri as mtri
 
-from maxwell.dg.dg2d import *
-from maxwell.driver import *
-from maxwell.integrators.LSERK4 import *
+from maxwell.dg.dg3d import *
 from mesher.create_mesh import *
-from mesher.read_mesh import *
+from mesher.plot_mesh import *
 from maxwell.utils import *
 
 BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]       
 MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]   
-PROBLEM = {'DIM': 2, 'name': 'cem_4p6', 'folder_name': 'cem_4p6', 'description': '', 'Lx': 2.0, 'Ly': 2.0}
-    
+PROBLEM = {'DIM': 3, 'name': 'cem_5-p6', 'folder_name': 'cem_5', 'description': '', 'L': 2.0}
 
-def compute_B_field(N, mesh):
+
+def compute_B_field_3d(N, mesh):
     """Calcula o campo B = ∇Az × ẑ a partir de Az = x² + y²"""
-    x, y = nodes_coordinates(N, mesh)
+    x, y, z = nodes_coordinates(N, mesh)
     Az = x**2 + y**2
-    r, s = xy_to_rs(*set_nodes_in_equilateral_triangle(N))
-    Dr, Ds = derivateMatrix(N, r, s)
-    rx, sx, ry, sy, _ = geometricFactors(x, y, Dr, Ds)
-    dAz_dx, dAz_dy = grad(Dr, Ds, Az, rx, sx, ry, sy)
+    r, s, t = xyz_to_rst(*set_nodes_in_equilateral_tetrahedron(N))
+    V = vandermonde3D(N, r, s, t)
+    Dr, Ds, Dt = differentiation_matrices_3d(N, r, s, t, V)
+    rx, sx, tx, ry, sy, ty, rz, sz, tz, J = geometricFactors3D(x, y, z, Dr, Ds, Dt)
+    dAz_dx, dAz_dy, dAz_dz = Grad3D(Az, Dr, Ds, Dt, rx, sx, tx, ry, sy, ty, rz, sz, tz)
     Bx = dAz_dy
     By = -dAz_dx
     return x, y, Bx, By
-
-
-def plot_B_field(x, y, Bx, By, N, mesh_data, scale=30):
-    """
-    Plota o campo vetorial B sobreposto à malha de Gmsh.
-
-    Parâmetros:
-        x, y     : coordenadas dos nós (Np, K)
-        Bx, By   : componentes do campo (Np, K)
-        N        : ordem do polinômio
-        mesh_data: dicionário com 'VX', 'VY', 'EToV'
-        scale    : fator de escala para o quiver
-    """
-    # Malha de fundo
-    VX, VY = mesh_data["VX"], mesh_data["VY"]
-    EToV = mesh_data["EToV"]
-
-    # Vetores para o gráfico
-    X = x.ravel(order='F')
-    Y = y.ravel(order='F')
-    U = Bx.ravel(order='F')
-    V = By.ravel(order='F')
-
-    # Plotar malha com triplot
-    _, ax = plt.subplots(figsize=(7, 6))
-    triangle = mtri.Triangulation(VX, VY, triangles=EToV)
-    ax.triplot(triangle, color="gray", linewidth=0.5)
-
-    # Plotar campo vetorial
-    ax.quiver(
-        X, Y, U, V,
-        angles='xy',
-        scale_units='xy',
-        scale=scale,
-        width=0.003,
-        color='blue',
-        pivot='middle'
-    )
-
-    ax.set_title(fr"$\mathbf{{B}} = \nabla A_z \times \hat{{z}}$ para $N = {N}$")
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.axis("equal")
-    ax.grid(False)
-    plt.tight_layout()
 
 
 def L2_error_gradient(x, y, Bx, By):
@@ -155,8 +108,8 @@ def L2_error_gradient(x, y, Bx, By):
         erro_L2 (float): norma L2 do erro total
     """
     # Campo exato
-    Bx_exact = 2 * y
-    By_exact = -2 * x
+    Bx_exact = +2*y
+    By_exact = -2*x
 
     # Erro quadrático em cada componente
     err_Bx = (Bx - Bx_exact)**2
@@ -188,8 +141,8 @@ def L2_error_gradient_mass_matrix(Bx, By, x, y, N):
             Norma L2 do erro
     """
     Np, K = x.shape
-    r, s = xy_to_rs(*set_nodes_in_equilateral_triangle(N))
-    M = mass_matrix(N, r, s)
+    r, s, t = xyz_to_rst(*set_nodes_in_equilateral_tetrahedron(N))
+    M = mass_matrix(N, r, s, t)
 
     # Solução exata
     Bx_ex = 2 * y
@@ -212,20 +165,38 @@ def main() -> None:
     """Função principal para execução do script."""
     clear_terminal()
 
-    # Criar a malha retangular com Gmsh
-    mesh_data = mesh_rectangular_domain(PROBLEM, BOUNDARY, MATERIAL, h=10, view_mesh=False, mesh_info=False) 
-    mesh=Mesh2D(vx=mesh_data['VX'], vy=mesh_data['VY'], EToV=mesh_data['EToV'])
+    # 1. Criar a malha retangular com Gmsh
+    gmsh.initialize()
+    mesh_cubeK6()
+    
+    # 1.1. Obtém a conectividade dos elementos
+    EToV = get_EToV(dim=PROBLEM['DIM'], index_based=0)
+    VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=PROBLEM['DIM']))
+    # gmsh.fltk.run()
+    gmsh.finalize()
+
+    # 2. Criar o objeto Mesh3D 
+    mesh=Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV)
+    EToE, EToF = mesh.connectivityMatrices()
+
+    # 3. Plotar a malha
+    # plot_tetrahedral_mesh(VX, VY, VZ, EToV)
+    # plot_local_tetrahedral_mesh(VX, VY, VZ, EToV)
+
+    print(f"\nMalha criada com {mesh.number_of_vertices()} vértices e {mesh.number_of_elements()} elementos.")
+    print(f"\nCoordenadas dos nós (VX, VY, VZ):\n{mesh.vx}\n{mesh.vy}\n{mesh.vz}")
+    print(f"\nConectividade dos elementos (EToV):\n{mesh.EToV}")
+    print(f"\nConectividade elemento a elemento (EToE):\n{EToE}")
+    print(f"\nConectividade elemento a face (EToF):\n{EToF}")
 
     # Testando com N = 3 e N = 4
     print("\nCalculando o campo B...:")
     for N in [3, 4]:
-        x, y, Bx, By = compute_B_field(N, mesh)
+        x, y, Bx, By = compute_B_field_3d(N, mesh)
         erro_L2 = L2_error_gradient(x, y, Bx, By)
         erro_L2_matrix = L2_error_gradient_mass_matrix(Bx, By, x, y, N)
         print(f"N = {N}: Erro L2 do gradiente: {erro_L2:.2e}. Erro L2 com matriz de massa: {erro_L2_matrix:.2e}")
-        plot_B_field(x, y, Bx, By, N, mesh_data)
-    plt.show()
-    
 
 if __name__ == '__main__':
     main()
+    plt.show()

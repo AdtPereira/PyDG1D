@@ -1,0 +1,751 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# pylint: disable=E0611, C0413, C0103, W0401, W0614, W0622
+"""
+══════════════════════════════════════════════════════════════════════════
+
+ESTE SCRIPT UTILIZA CAMINHOS ABSOLUTOS E NÃO ALTERA O DIRETÓRIO DE TRABALHO
+
+EXECUÇÃO:
+cd C:\\git\\PyDG1D
+conda activate pyDG1D
+python examples\\hesthaven\\3D_cavity.py
+
+══════════════════════════════════════════════════════════════════════════
+
+O script está estruturado para garantir que todos os arquivos e pastas usados
+sejam acessados por caminhos absolutos, evitando problemas causados por mudanças
+do diretório de trabalho (cwd).
+
+PRINCIPAIS CONSIDERAÇÕES SOBRE DIRETÓRIOS:
+
+1️⃣ Diretório raiz do projeto (CWD_ROOT):
+    - CWD_ROOT = Path.cwd()
+    - Definido automaticamente como o diretório atual quando o script é iniciado.
+    - No seu ambiente, o diretório raiz é sempre:
+      C:\\git\\PyDG1D
+    - Todas as pastas e arquivos são referenciados em relação a esse diretório.
+
+2️⃣ Estrutura esperada:
+    - PyDG1D/
+        ├── examples/
+        │   └── jacobi_poly.py
+        │   └── vandermonde_matrices.py
+        │   └── Cavity1D.py
+        │   └── cem_3p16.py
+        │   └── hesthaven_e24.py
+        │   └── ...
+        │   └── ProblemSet1.py
+        │   └── LinAdvecEq1D.py
+        │   └── LinAdvecEq1D.ipynb
+        ├── examplesData/
+        │   └── inputs/
+        │       ├── LinAdvecEq1D
+        │           └── LinAdvecEq1D.mat
+        │       ├── jacobi_poly
+        │           └── ...
+        │       ├── vandermonde_matrices
+        │           └── ...
+        │   └── outputs/
+        │       ├── LinAdvecEq1D
+        │           └── LinAdvecEq1D.log
+        │       ├── ProblemSet1
+        │           └── ProblemSet1.log
+        ├── maxwell/
+        │   └── dg/
+        │       ├── __init__.py
+        │       ├── dg1d_tools.py
+        │           └── jacobi_polynomial()
+        │           └── jacobiGL()
+
+Autor: Adilton Pereira
+Data: 12/06/2025
+"""
+
+import os
+import sys
+from scipy.io import loadmat
+
+# Adiciona a raiz do projeto ao PYTHONPATH
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..\..')))
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.tri import Triangulation
+import matplotlib.cm as cm
+
+from maxwell.dg.dg3d import *
+from maxwell.driver import *
+from maxwell.integrators.LSERK4 import *
+from mesher.create_mesh import *
+from mesher.plot_mesh import *
+from maxwell.utils import *
+
+MATDATA = loadmat('C:\git\PyDG1D\examplesData\inputs\hesthaven_3D\dados.mat')
+BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]
+MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]   
+INFO_GRAPH = {'cell': False, 'nodes': False, 'edges': False, 'edges_numb': False, 'filepath': 'examplesData/inputs/hesthaven/3D_cavity/3D_cavity.svg'}
+PROBLEM = {'DIM': 3, 'name': '3D_cavity', 'folder_name': 'hesthaven', 'description': 'Teste de convergência do esquema DGTD tridimensional TMz.',
+    'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
+    'flux_type': 'Centered',    # 'Upwind' or 'Centered'
+    't_0': 0.0,                 # Tempo inicial
+    'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
+    'm': 1,                     # Número de modo
+    'n': 1,                     # Número de modo
+    'L': 1,                     # Dimensão total do domínio
+    'n_order': 3,               # Ordem de interpolação polinomial
+}
+
+
+class SpectralAnalyzer:
+    def __init__(self, PROBLEM):
+        self.DIM = PROBLEM['DIM']
+        self.m = PROBLEM['m']
+        self.n = PROBLEM['n']
+        self.L = PROBLEM['L']
+        self.kx = self.m * np.pi / self.L
+        self.ky = self.n * np.pi / self.L
+        self.w = np.sqrt(self.kx**2 + self.ky**2)
+        self.t_0 = PROBLEM['t_0']
+        # self.t_final = 3 * (2 * np.pi / self.w)
+        self.t_final = 10
+
+    def resonant_cavity_Ez(self, x, y, z, t):
+        return np.sin(self.kx * x) * np.sin(self.ky * y) * np.cos(self.w * t)
+
+    def resonant_cavity_Hx(self, x, y, z, t):
+        return - (self.ky / self.w) * np.sin(self.kx * x) * np.cos(self.ky * y) * np.sin(self.w * t)
+
+    def resonant_cavity_Hy(self, x, y, z, t):
+        return (self.kx / self.w) * np.cos(self.kx * x) * np.sin(self.ky * y) * np.sin(self.w * t)
+
+    def resonant_cavity_dyEz(self, x, y, z, t):
+        return (self.ky) * np.sin(self.kx * x) * np.cos(self.ky * y) * np.cos(self.w * t)
+
+    def resonant_cavity_dxEz(self, x, y, z, t):
+        return (self.kx) * np.cos(self.kx * x) * np.sin(self.ky * y) * np.cos(self.w * t)
+
+    def plot_analytical_field(self, Nx=50, Ny=50, Nz_slices=3):
+        """
+        Plota a solução analítica Ez sobre o domínio físico tridimensional,
+        utilizando fatias ao longo do eixo z.
+        """
+        # 1. Definição do domínio e tempo
+        L = self.L
+        T = 2 * np.pi / self.w
+        t_final = 3 * T
+
+        # 2. Criação da malha de visualização
+        x = np.linspace(-L/2, L/2, Nx)
+        y = np.linspace(-L/2, L/2, Ny)
+        z = np.linspace(-L/2, L/2, Nz_slices)
+        X, Y, Z = np.meshgrid(x, y, z, indexing='xy')
+
+        # 3. Avaliação da solução analítica
+        Ez = self.resonant_cavity_Ez(X, Y, Z, t_final)
+
+        # 4. Preparação para plotagem
+        cmap = plt.get_cmap('viridis')
+        norm = plt.Normalize(vmin=np.min(Ez), vmax=np.max(Ez))
+
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        fig.suptitle(rf'Solução Analítica $E_z(x, y, z, t = 3T = {t_final:.2f} s)$', fontsize=14)
+
+        # 5. Plotagem das fatias
+        for i in range(Nz_slices):
+            Xi, Yi, Zi = X[:, :, i].T, Y[:, :, i].T, Z[:, :, i].T
+            Ezi = Ez[:, :, i]
+            z_val = Z[0, 0, i]
+            ax.contourf(Xi, Yi, Ezi, zdir='z', offset=z_val, cmap=cmap, norm=norm, alpha=0.7)
+
+        # 6. Configurações do gráfico
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
+        ax.set_xlim(-L/2, L/2)
+        ax.set_ylim(-L/2, L/2)
+        ax.set_zlim(-L/2, L/2)
+        ax.set_title(r'Campo $E_z$ em fatias ao longo do eixo $z$')
+
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm._A = []
+        fig.colorbar(sm, ax=ax, shrink=0.6, aspect=12, label=r'$E_z$')
+
+        ax.view_init(elev=25, azim=-135)
+
+    def plot_analytical_field_at_faces(self, Nx=50, Ny=50, Nz=50, x_slice=None, y_slice=None, z_slice=None): 
+        """
+        Plota as paredes do domínio (planos YZ, XZ e XY) em um único gráfico 3D,
+        coloridas pela amplitude do campo Ez.
+        """
+        # 1. Definição de cortes padrão
+        L = self.L
+        if x_slice is None:
+            x_slice = -L / 2
+        if y_slice is None:
+            y_slice = +L / 2
+        if z_slice is None:
+            z_slice = -L / 2
+
+        # 2. Parâmetros temporais
+        T = 2 * np.pi / self.w if self.w > 0 else 1.0
+        t_final = 3 * T
+
+        # 3. Geração das grades
+        x_coords = np.linspace(-L/2, L/2, Nx)
+        y_coords = np.linspace(-L/2, L/2, Ny)
+        z_coords = np.linspace(-L/2, L/2, Nz)
+
+        # 4. Cálculo do campo completo para normalização
+        X_full, Y_full, Z_full = np.meshgrid(x_coords, y_coords, z_coords, indexing='ij')
+        Ez_full = self.resonant_cavity_Ez(X_full, Y_full, Z_full, t_final)
+        vmin, vmax = np.min(Ez_full), np.max(Ez_full)
+        cmap = plt.get_cmap('viridis')
+        norm = plt.Normalize(vmin=vmin, vmax=vmax)
+
+        # 5. Criação da figura 3D
+        fig = plt.figure(figsize=(12, 9))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_title(rf'Paredes do Domínio com Campo $E_z$ (t = {t_final:.2f} s)', fontsize=16, pad=20)
+
+        # 6. Método auxiliar interno
+        def _plot_face(ax, fixed_axis, fixed_value, coords1, coords2, axis_labels):
+            """
+            Plota uma superfície com um dos eixos fixos.
+            - fixed_axis: str, 'x', 'y' ou 'z'
+            - fixed_value: valor fixo dessa coordenada
+            - coords1, coords2: vetores das outras duas coordenadas
+            - axis_labels: tupla com nomes das variáveis das duas direções variáveis
+            """
+            A, B = np.meshgrid(coords1, coords2, indexing='ij')
+            if fixed_axis == 'x':
+                X, Y, Z = np.full_like(A, fixed_value), A, B
+            elif fixed_axis == 'y':
+                X, Y, Z = A, np.full_like(A, fixed_value), B
+            elif fixed_axis == 'z':
+                X, Y, Z = A, B, np.full_like(A, fixed_value)
+            else:
+                raise ValueError("Eixo fixo inválido.")
+            
+            Ez_slice = self.resonant_cavity_Ez(X, Y, Z, t_final)
+            colors = cmap(norm(Ez_slice))
+            ax.plot_surface(X, Y, Z, facecolors=colors, shade=False)
+
+        # 7. Plotagem das superfícies
+        _plot_face(ax, 'x', x_slice, y_coords, z_coords, ('y', 'z'))  # Plano YZ
+        _plot_face(ax, 'y', y_slice, x_coords, z_coords, ('x', 'z'))  # Plano XZ
+        _plot_face(ax, 'z', z_slice, x_coords, y_coords, ('x', 'y'))  # Plano XY
+
+        # 8. Configurações finais
+        ax.set_xlabel('Eixo X (m)')
+        ax.set_ylabel('Eixo Y (m)')
+        ax.set_zlabel('Eixo Z (m)')
+        ax.set_xlim(-L/2, L/2)
+        ax.set_ylim(-L/2, L/2)
+        ax.set_zlim(-L/2, L/2)
+        
+        mappable = cm.ScalarMappable(cmap=cmap, norm=norm)
+        fig.colorbar(mappable, ax=ax, shrink=0.6, aspect=10, label=r'Amplitude $E_z$')        
+        ax.view_init(elev=25, azim=-60)
+
+
+def single_test_validation(PROBLEM) -> None:
+    """
+    Testa a solução numérica comparando com a solução analítica.
+
+    Parâmetros
+    ----------
+    problem : dict
+        Dicionário com os parâmetros do problema.
+    sp : DG1D
+        Objeto de discretização espacial.
+    uh : ndarray
+        Solução numérica obtida pelo driver.
+
+    Retorna
+    -------
+    None
+    """
+    sa = SpectralAnalyzer(PROBLEM)
+    
+    # 1. Criar a malha retangular com Gmsh
+    gmsh.initialize()
+    mesh_cubeK6()
+    EToV = get_EToV(dim=PROBLEM['DIM'], index_based=0)
+    VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=PROBLEM['DIM']))
+    # gmsh.fltk.run()
+    gmsh.finalize()
+
+    # # 1.1 Fernando Palma
+    # VX = np.array([0., 1., 1., 0., 0., 1., 1., 0.])
+    # VY = np.array([0., 0., 0., 0., 1., 1., 1., 1.])
+    # VZ = np.array([0., 0., 1., 1., 0., 0., 1., 1.])
+    # EToV = np.array([[0, 3, 7, 2],
+    #                  [0, 7, 4, 6],
+    #                  [5, 0, 4, 6],
+    #                  [0, 7, 6, 2],
+    #                  [5, 0, 6, 1],
+    #                  [6, 0, 2, 1]])
+
+    # 2. Criar o objeto Mesh3D 
+    mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=PROBLEM['bc'])
+    EToE, EToF = mesh.connectivityMatrices()
+
+    print(f"\nMalha criada com {mesh.number_of_vertices()} vértices e {mesh.number_of_elements()} elementos.")
+    print(f"\nCoordenadas dos nós (VX, VY, VZ):\n{mesh.vx}\n{mesh.vy}\n{mesh.vz}")
+    print(f"\nConectividade dos elementos (EToV):\n{mesh.EToV}")
+    print(f"\nConectividade elemento a elemento (EToE):\n{EToE}")
+    print(f"\nConectividade elemento a face (EToF):\n{EToF}") 
+
+    # # Solução analítica
+    # sa.plot_analytical_field()
+    # sa.plot_analytical_field_at_faces()
+
+    # 3. Definir a discretização espacial usando DG3D
+    sp = Maxwell3D(n_order=PROBLEM['n_order'], mesh=mesh, fluxType=PROBLEM['flux_type'])
+    print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}, {sp.mesh.number_of_elements()} elementos e {sp.number_of_nodes_per_element()} pontos por elemento.")
+
+    # 4. Coordenadas físicas dos nós (Np x K)
+    r, s, t = xyz_to_rst(*set_nodes_in_equilateral_tetrahedron(sp.n_order))
+    x, y, z = nodes_coordinates(sp.n_order, mesh)
+
+    # 5. Campo E = (0, 0, Ez)
+    Ez = sa.resonant_cavity_Ez(x, y, z, t=sa.t_0)
+    Ex = np.zeros_like(Ez)
+    Ey = np.zeros_like(Ez)
+
+    # 6. Cálculo do rotacional numérico
+    xcurlE, ycurlE, zcurlE = Curl3D(
+        Ex, Ey, Ez, sp.Dr, sp.Ds, sp.Dt, sp.rx, sp.sx, sp.tx, sp.ry, sp.sy, sp.ty, sp.rz, sp.sz, sp.tz)
+
+    # 7. Cálculo do rotacional analítico
+    curlx_analytical = +sa.resonant_cavity_dyEz(x, y, z, t=sa.t_0)
+    curly_analytical = -sa.resonant_cavity_dxEz(x, y, z, t=sa.t_0)
+
+    # 8. Erro quadrático médio
+    def rmse(u_num, u_ref):
+        assert u_num.shape[0] == sp.number_of_nodes_per_element()
+        assert u_num.shape[1] == sp.mesh.number_of_elements()
+        return np.sqrt(np.mean((u_num - u_ref)**2))
+
+    rmse_x = rmse(xcurlE, curlx_analytical)
+    rmse_y = rmse(ycurlE, curly_analytical)
+    L2x_error = compute_L2_error(sp, xcurlE, curlx_analytical)
+    L2y_error = compute_L2_error(sp, ycurlE, curly_analytical)
+    
+    print(f"\n📏 Erro quadrático médio do operador 'Curl3D' (RMSE):")
+    print(f"    curl_x  → {rmse_x:.3e}")
+    print(f"    curl_y  → {rmse_y:.3e}")
+    
+    print(f"\n🌐 Erro na norma L2 do operador 'Curl3D':")
+    print(f"    curl_x  → {L2x_error:.3e}")
+    print(f"    curl_y  → {L2y_error:.3e}")
+
+    print("\n🔍 Verificando equivalência dos resultados Python e MATLAB ...")
+    RTOL = 1e-10
+    ATOL = 1e-12
+
+    # Coordenadas físicas
+    # print(f"\n x_diff: \n{(x - MATDATA['x'])}")
+    assert np.allclose(x, MATDATA['x'], rtol=RTOL, atol=ATOL), "❌ Diferença detectada em x"
+    assert np.allclose(y, MATDATA['y'], rtol=RTOL, atol=ATOL), "❌ Diferença detectada em y"
+    assert np.allclose(z, MATDATA['z'], rtol=RTOL, atol=ATOL), "❌ Diferença detectada em z"
+    print("✅ Coordenadas físicas (x, y, z).")
+
+    # Nós modais
+    assert np.allclose(r, MATDATA['r'].T, rtol=RTOL, atol=ATOL), "❌ Diferença em r"
+    assert np.allclose(s, MATDATA['s'].T, rtol=RTOL, atol=ATOL), "❌ Diferença em s"
+    assert np.allclose(t, MATDATA['t'].T, rtol=RTOL, atol=ATOL), "❌ Diferença em t"
+    print("✅ Nós modais (r, s, t).")
+
+    # Vandermonde
+    assert np.allclose(sp.V, MATDATA['V'], rtol=RTOL, atol=ATOL), "❌ Diferença em V"
+    print("✅ Matrizes de Vandermonde.")
+
+    # Diferenciais
+    assert np.allclose(sp.Dr, MATDATA['Dr'], rtol=RTOL, atol=ATOL), "❌ Diferença em Dr"
+    assert np.allclose(sp.Ds, MATDATA['Ds'], rtol=RTOL, atol=ATOL), "❌ Diferença em Ds"
+    assert np.allclose(sp.Dt, MATDATA['Dt'], rtol=RTOL, atol=ATOL), "❌ Diferença em Dt"
+    print("✅ Matrizes de diferenciação (Dr, Ds, Dt).")
+
+    # Fatores geométricos
+    assert np.allclose(sp.rx, MATDATA['rx'], rtol=RTOL, atol=ATOL), "❌ Diferença em rx"
+    assert np.allclose(sp.sx, MATDATA['sx'], rtol=RTOL, atol=ATOL), "❌ Diferença em sx"
+    assert np.allclose(sp.tx, MATDATA['tx'], rtol=RTOL, atol=ATOL), "❌ Diferença em tx"
+    assert np.allclose(sp.ry, MATDATA['ry'], rtol=RTOL, atol=ATOL), "❌ Diferença em ry"
+    assert np.allclose(sp.sy, MATDATA['sy'], rtol=RTOL, atol=ATOL), "❌ Diferença em sy"
+    assert np.allclose(sp.ty, MATDATA['ty'], rtol=RTOL, atol=ATOL), "❌ Diferença em ty"
+    assert np.allclose(sp.rz, MATDATA['rz'], rtol=RTOL, atol=ATOL), "❌ Diferença em rz"
+    assert np.allclose(sp.sz, MATDATA['sz'], rtol=RTOL, atol=ATOL), "❌ Diferença em sz"
+    assert np.allclose(sp.tz, MATDATA['tz'], rtol=RTOL, atol=ATOL), "❌ Diferença em tz"
+    assert np.allclose(sp.jacobian, MATDATA['J'], rtol=RTOL, atol=ATOL), "❌ Diferença em J"
+    print("✅ Fatores geométricos (rx, sx, tx, ry, sy, ty, rz, sz, tz, J).")
+
+
+def plot_global_solution(sp, field, field_label='u', show_mesh=True):
+    """
+    Plota a solução DG diretamente nos pontos modais do método, sem interpolação.
+
+    Parâmetros
+    ----------
+    sp : Maxwell2D
+        Objeto com malha e campos do método DG.
+    field : ndarray (Np x K)
+        Solução numérica DG (Ez, Hx ou Hy).
+    field_label : str
+        Nome do campo a ser exibido no gráfico.
+    show_mesh : bool
+        Se True, sobrepõe as bordas dos elementos triangulares.
+    """
+    # Reorganiza os dados em arrays planos
+    x = sp.x.ravel(order='F')  # tamanho Np*K
+    y = sp.y.ravel(order='F')
+    uh = field.ravel(order='F')
+
+    r, s = xy_to_rs(*set_nodes_in_equilateral_triangle(sp.n_order))
+    tri_local = Triangulation(r, s).triangles
+
+    # Constrói triangulação global
+    Np, K = field.shape
+    triangles_all = []
+    for k in range(K):
+        offset = k * Np
+        tri_k = tri_local + offset
+        triangles_all.extend(tri_k)
+    tri_global = Triangulation(x, y, np.array(triangles_all))
+
+    # --- Gráficos ---
+    fig = plt.figure(figsize=(14, 6))
+    ax1 = fig.add_subplot(1, 2, 1)
+    ax2 = fig.add_subplot(1, 2, 2, projection='3d')
+
+    # Contorno 2D
+    tcf = ax1.tricontourf(tri_global, uh, levels=100, cmap='viridis')
+    fig.colorbar(tcf, ax=ax1, label=fr'{field_label}(x,y)')
+    ax1.set_title(fr'Solução DG ${field_label}(x, y)$ nos pontos modais')
+    ax1.set_xlabel("x")
+    ax1.set_ylabel("y")
+    ax1.set_aspect("equal")
+
+    if show_mesh:
+        VX, VY = sp.mesh.vx, sp.mesh.vy
+        EToV = sp.mesh.EToV
+        for tri in EToV:
+            px = [VX[tri[0]], VX[tri[1]], VX[tri[2]], VX[tri[0]]]
+            py = [VY[tri[0]], VY[tri[1]], VY[tri[2]], VY[tri[0]]]
+            ax1.plot(px, py, color='k', linewidth=0.5)
+
+    # Superfície 3D
+    ax2.plot_trisurf(tri_global, uh, cmap='viridis', linewidth=0.2)
+    ax2.set_title(fr'Solução DG ${field_label}(x, y)$ - Superfície')
+    ax2.set_xlabel("x")
+    ax2.set_ylabel("y")
+    ax2.set_zlabel(fr'{field_label}(x, y)')
+    ax2.view_init(elev=35, azim=-120)
+    plt.tight_layout()
+    plt.show()
+
+
+def compute_L2_error(sp, uh, ua):
+    """
+    Calcula o erro global na norma L2 usando errᵗ diag(J) M err para cada elemento.
+
+    Parâmetros
+    ----------
+    sp : DG1D
+        Objeto com a discretização espacial.
+    u_h : ndarray
+        Solução numérica final do método DG (Np x K).
+    ua : ndarray
+        Solução analítica (Np x K).
+
+    Retorno
+    -------
+    float
+        Erro global na norma L2.
+    """
+    err = ua - uh
+    M = sp.mass_matrix 
+    K = sp.mesh.number_of_elements()
+    errL2_local = np.zeros(K)
+
+    for k in range(K):
+        Jk = np.diag(sp.jacobian[:, k])           # (Np x Np)
+        ek = err[:, k][:, np.newaxis]             # (Np x 1)
+        errL2_local[k] = (ek.T @ Jk @ M @ ek)[0, 0]
+    return np.sqrt(np.sum(errL2_local))
+
+
+def plot_L2_error_comparison(all_results):
+    """
+    Gera um gráfico com a evolução temporal do erro L2 para diferentes ordens polinomiais (N),
+    comparando os fluxos Upwind e Central.
+    """
+    fig, axs = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+
+    # Mapeia os estilos de linha para cada ordem
+    styles = {
+        4: 'k-.',
+        6: 'k:',
+        8: 'k-',
+        10: 'k--'
+    }
+
+    # Loop sobre fluxos
+    for ax, flux_type in zip(axs, ['Upwind', 'Centered']):
+        flux_data = all_results[flux_type]
+
+        for N, data in sorted(flux_data.items()):
+            time = np.array(data['time'])
+            l2_errors = np.array(data['L2_error']['Ez'])
+
+            label = f'N={N}'
+            linestyle = styles.get(N, 'k--')
+            ax.plot(time, l2_errors, linestyle, label=label)
+
+        ax.set_yscale('log')
+        ax.set_xlim([0, max(time)])
+        ax.set_ylim([1e-12, 1e0])
+        ax.set_xlabel('Time')
+        ax.set_title(f'{flux_type} flux')
+
+        ax.grid(True, which='both', ls=':')
+        ax.legend()
+
+    axs[0].set_ylabel(r'$L^2$ error')
+
+    fig.suptitle(r'Time trace of the discrete $L^2$-error for $E^z$')
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+
+def run_L2_error_study(PROBLEM):
+    """
+    Executa um estudo de convergência espectral (em N) para dois fluxos (upwind e central)
+    aplicados à equação de Maxwell 3D usando DG.
+
+    Retorna:
+    --------
+    dict contendo os erros L2 e evolução temporal organizados por tipo de fluxo e ordem N.
+    """
+
+    # Configurações comuns
+    sa = SpectralAnalyzer(PROBLEM)
+    t_final = sa.t_final
+    n_list = [4, 6, 8, 10]
+    flux_types = ['Upwind', 'Centered']
+    all_results = {flux: {} for flux in flux_types}
+
+    # 1. Gerar a malha uma vez
+    gmsh.initialize()
+    mesh_cubeK6()
+    EToV = get_EToV(dim=PROBLEM['DIM'], index_based=0)
+    VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=PROBLEM['DIM']))
+    gmsh.finalize()
+
+    # 2. Loop sobre tipo de fluxo
+    for flux_type in flux_types:
+        PROBLEM['flux_type'] = flux_type
+
+        # 3. Loop sobre ordens polinomiais
+        for n in n_list:
+            print(f"\n▶️ Rodando simulação com N={n}, fluxo={flux_type}")
+
+            # Criar malha e solver
+            mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=PROBLEM['bc'])
+            sp = Maxwell3D(n_order=n, mesh=mesh, fluxType=flux_type)
+            driver = MaxwellDriver(sp, CFL=PROBLEM['cfl'])
+
+            # Condição inicial
+            driver['Ez'][:] = sa.resonant_cavity_Ez(sp.x, sp.y, sp.z, 0)
+
+            # Preparar dados
+            analytical_fields = {'Ez': sa.resonant_cavity_Ez}
+            error_data = {'time': [], 'L2_error': {key: [] for key in analytical_fields}}
+            t = 0.0
+
+            # Loop no tempo
+            for _ in range(int(t_final / driver.dt)):
+                error_data['time'].append(t)
+
+                for field_name, analytical_fn in analytical_fields.items():
+                    uh = driver[field_name]
+                    ua = analytical_fn(sp.x, sp.y, sp.z, t)
+                    l2_error = compute_L2_error(sp, uh, ua)
+                    error_data['L2_error'][field_name].append(l2_error)
+
+                driver.step()
+                t += driver.dt
+
+            all_results[flux_type][n] = error_data
+
+    # 4. Plotar resultados
+    plot_L2_error_comparison(all_results)
+    print("\n🔍 Estudo de convergência espectral concluído.")
+    return all_results
+
+
+def compute_error_data(PROBLEM, N, h):
+    """Executa a simulação para (N, K) e retorna o erro L2 máximo."""
+    sa = SpectralAnalyzer(PROBLEM)
+    # Atualiza o número de elementos na malha
+    mesh_data = mesh_rectangular_domain(PROBLEM, BOUNDARY, MATERIAL, h, auto_save=False)
+
+    # Generate Spatial Discretization
+    sp = Maxwell2D(
+        n_order=N,
+        mesh=Mesh2D(
+            vx=mesh_data['VX'],
+            vy=mesh_data['VY'],
+            EToV=mesh_data['EToV'],
+            boundary_label=PROBLEM['bc']),
+        fluxType=PROBLEM['flux_type'])
+
+    # Initialize the solver
+    driver = MaxwellDriver(sp, CFL=PROBLEM['cfl'])
+    driver['Ez'][:] = sa.resonant_cavity_Ez(sp.x, sp.y, 0)
+    n_steps = int(np.ceil(sa.t_final / driver.dt))
+
+    analytical_fields={'Ez': sa.resonant_cavity_Ez}
+    error_data = {
+        'K': len(mesh_data['EToV']),
+        'dt': driver.dt,
+        'n_steps': n_steps,
+        'time': [],
+        'L2_error': {key: [] for key in analytical_fields}}
+
+    t = 0.0
+    for _ in range(n_steps):
+        error_data['time'].append(t)
+        for field_name, analytical_fn in analytical_fields.items():
+            uh = driver[field_name]
+            ua = analytical_fn(sp.x, sp.y, t)
+            l2_error = compute_L2_error(sp, uh, ua)
+            error_data['L2_error'][field_name].append(l2_error)
+
+        driver.step()
+        t += driver.dt
+    return error_data
+
+
+def compute_rates(errors, epsilon=1e-14):
+    """Remove erros pequenos, formata valores e calcula taxa média final."""
+    row = []
+    valid_errors = []
+
+    for e in errors:
+        if e < epsilon:
+            row.append("—")
+            valid_errors.append(np.nan)
+        else:
+            row.append(f"{e:.1E}")
+            valid_errors.append(e)
+
+    # Taxas de convergência
+    rates = []
+    for i in range(1, len(valid_errors)):
+        if np.isnan(valid_errors[i-1]) or np.isnan(valid_errors[i]):
+            rates.append(None)
+        else:
+            rates.append(np.log(valid_errors[i-1] / valid_errors[i]) / np.log(2))
+
+    # Cálculo da taxa média dos últimos 2 valores
+    avg_rate = (
+        np.mean([r for r in rates[-2:] if r is not None])
+        if any(r is not None for r in rates[-2:]) else None
+    )
+
+    row.append(f"{avg_rate:.1f}" if avg_rate else "—")
+    return row, valid_errors
+
+
+def plot_convergence_errors(PROBLEM, loglog_data, k_list, epsilon=1e-14):
+    """Plota gráfico log-log dos erros L2 máximos."""
+
+    plt.figure(figsize=(8, 5))
+    for N, errors in loglog_data.items():
+        ks = np.sqrt(np.array(k_list, dtype=float))
+        errors = np.array(errors)
+        mask = errors >= epsilon
+        if np.any(mask):
+            plt.loglog(ks[mask], errors[mask], marker='o', label=fr'Ordem $N={N}$')
+
+    plt.xlabel(r'$K^{0.5}$')
+    plt.ylabel('Erro $L^2$ Máximo')
+    plt.title(fr"DG-FEM Discrete $L^2$-error for $E_h^z$, for {PROBLEM['bc']} and {PROBLEM['flux_type']} flux.")
+    plt.grid(True, which="both", ls="--", alpha=0.6)
+    plt.xlim(1e0, 1e2)
+    plt.ylim(1e-10, 1e0)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def run_convergence_rate_study(PROBLEM) -> pd.DataFrame:
+    """
+    Executa um estudo de convergência para o campo E.
+    Retorna tabela de erros e gera gráfico.
+    """
+    sa = SpectralAnalyzer(PROBLEM)
+    epsilon = 1e-15
+    N_list = [1, 2, 3, 4, 5]
+    h_list = [4 / (2**n) for n in range(5)] # [4, 2, 1, 0.5, 0.25]
+
+    table_data = {}
+    loglog_data = {}
+
+    print(f"\n🔎 Estudo de convergência | Fluxo: {PROBLEM['flux_type']}, t_final: {sa.t_final:.2f}.")
+    print("-------------------------------------------------------------------")
+
+    for N in N_list:
+        print(f"\n📐 Ordem polinomial N = {N}")
+        raw_errors = []
+        k_list = []
+        for h in h_list:
+            print(f"\n  ➤ Executando para K = {h} ...", end=" ")
+            error_data = compute_error_data(PROBLEM, N, h)
+            max_L2 = max(error_data['L2_error']['Ez'])
+            raw_errors.append(max_L2)
+            k_list.append(error_data['K'])
+            print(f"Erro L2 máx = {max_L2:.2e}" if max_L2 >= epsilon else "Erro L2 máx ≈ 0")
+            print(f"Run with {error_data['n_steps']} steps and dt = {error_data['dt']} s.")
+
+        row, _ = compute_rates(raw_errors, epsilon)
+        table_data[N] = row
+        loglog_data[N] = raw_errors
+
+    # Tabela
+    col_labels = [str(k) for k in k_list] + ["Convergence rate"]
+    df = pd.DataFrame.from_dict(table_data, orient='index', columns=col_labels)
+    df.index.name = "N\\K"
+
+    # Impressão
+    print("\n✅ Estudo concluído. Tabela de erros L2 e taxas de convergência:")
+    print(df)
+
+    # Gráfico
+    plot_convergence_errors(PROBLEM, loglog_data, k_list, epsilon=1e-14)
+    return df
+
+
+def main() -> None:
+    """Função principal para execução do script."""
+    clear_terminal()
+
+    # Test 0 - Validação de um único teste considerando o código MATLAB
+    print("\n🔎 Teste de validação com código MATLAB...")
+    single_test_validation(PROBLEM)
+
+    # Test 1 - Convergence study
+    print("\n🔎 Estudo de convergência espectral...")
+    run_L2_error_study(PROBLEM)
+
+    # Test 2 - Convergence rate study
+    # run_convergence_rate_study(PROBLEM)
+    # print("\n✅ Execução concluída com sucesso!")
+
+
+if __name__ == '__main__':
+    main()
+    plt.show()
