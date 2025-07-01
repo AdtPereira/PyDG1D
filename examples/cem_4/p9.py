@@ -34,7 +34,8 @@ MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability':
 T_LIST = np.linspace(0.0, 1.0, 9)
 
 PROBLEM = {
-    'name': 'cem_4p9a', 'folder_name': 'cem_4p9',
+    'DIM': 2,
+    'name': 'p9a', 'folder_name': 'cem_4',
     'description': 'Análise espectral de um pulso gaussiano propagante em 2D',
     'flux_type': 'Upwind',    # 'Upwind' or 'Centered'
     'bc': "PEC",        # Condição de contorno do problema: Perfect Electric Conductor (PEC)

@@ -16,7 +16,7 @@ from mesher.create_mesh import *
 
 BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]
 MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]
-PROBLEM = {'name': 'cem_4p7', 'folder_name': 'cem_4p7', 'L': 2.0}
+PROBLEM = {'DIM': 2, 'name': 'cem_4p7', 'folder_name': 'cem_4', 'Lx': 2.0, 'Ly': 2.0, 'description': 'CEM 4.7 - Convergência espectral no triângulo de referência'}
 
 
 class SpectralAnalyzer:

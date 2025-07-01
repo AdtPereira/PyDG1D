@@ -213,7 +213,7 @@ def main() -> None:
     clear_terminal()
 
     # Criar a malha retangular com Gmsh
-    mesh_data = mesh_rectangular_domain(PROBLEM, BOUNDARY, MATERIAL, h=10, view_mesh=False, mesh_info=False) 
+    mesh_data = mesh_rectangular_domain(PROBLEM, BOUNDARY, MATERIAL, h=0.5, view_mesh=False, mesh_info=False) 
     mesh=Mesh2D(vx=mesh_data['VX'], vy=mesh_data['VY'], EToV=mesh_data['EToV'])
 
     # Testando com N = 3 e N = 4

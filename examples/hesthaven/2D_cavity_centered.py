@@ -82,7 +82,21 @@ from maxwell.utils import *
 
 BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]
 MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]   
-    
+PROBLEM = {
+    'DIM': 2,                     # Dimensão do problema (1D, 2D, 3D)
+    'name': '2D_cavity_centered', # Nome do problema
+    'folder_name': 'hesthaven',   # Pasta onde os resultados serão salvos  
+    'description': 'Teste de convergência do esquema DGTD bidimensional TMz. Hesthaven, p. 205',
+    'json_name': 'hesthaven_fig_69a',
+    'flux_type': 'Centered',    # 'Upwind' or 'Centered'
+    'cfl': 0.1,                 # Número de Courant-Friedrichs-Lewy
+    'n_steps': 40,              # Tempo final da simulação
+    'kx': 2*np.pi,              # Número de onda
+    'Lx': 2,                    # Comprimento do domínio
+    'Ly': 2,                    # Largura do domínio
+    'n_order': 3                # Ordem de interpolação polinomial
+}   
+
 
 def resonant_cavity_ez_field(x, y, t):
     ''' Hesthaven's book p. 205 '''
@@ -115,7 +129,7 @@ def single_test_solution(problem_data) -> None:
     # Visualizar a malha criada
     INFO_GRAPH = {'cell': False, 'nodes': False, 'edges': False, 'edges_numb': False,
                     'filepath': 'examplesData/inputs/hesth_2D_cavity/hesth_2D_cavity.svg'}
-    plot_triangular_mesh(INFO_GRAPH, mesh_data)
+    # plot_triangular_mesh(INFO_GRAPH, mesh_data)
 
     # Definir a discretização espacial usando DG1D
     sp = Maxwell2D(
@@ -400,19 +414,6 @@ def main() -> None:
     """Função principal para execução do script."""
     clear_terminal()
 
-    # PROBLEMA: Definições do problema de advecção linear 1D
-    PROBLEM = {'name': 'hesth_2D_cavity_centered',
-        'folder_name': 'hesth_2D_cavity',
-        'description': 'Teste de convergência do esquema DGTD bidimensional TMz. Hesthaven, p. 205',
-        'json_name': 'hesthaven_fig_69a',
-        'flux_type': 'Centered',    # 'Upwind' or 'Centered'
-        'cfl': 0.1,                 # Número de Courant-Friedrichs-Lewy
-        'n_steps': 40,              # Tempo final da simulação
-        'kx': 2*np.pi,              # Número de onda
-        'L': 2,                     # Comprimento do domínio
-        'n_order': 3                # Ordem de interpolação polinomial
-    }
-    
     # Test 0 - The solution
     single_test_solution(PROBLEM)    
 

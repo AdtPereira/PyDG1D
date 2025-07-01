@@ -50,21 +50,20 @@ import json
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
+
 from scipy.special import eval_jacobi
 from scipy.special import gamma as gamma_func
 from scipy.special import roots_jacobi
 
 # Adiciona a raiz do projeto ao PYTHONPATH
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..\..')))
+
 from maxwell.dg.dg1d_tools import jacobi_polynomial, jacobiGL, jacobi_gauss
+from maxwell.utils import *
 
 # Pastas principais
 CASE_NAME   = 'jacobi_poly'
 INPUTS      = (Path.cwd() / 'examplesData' / 'inputs' / CASE_NAME).resolve()
-
-def clear_terminal() -> None:
-    """Limpa o terminal para melhor visualização."""
-    os.system('cls' if os.name == 'nt' else 'clear')
 
 def extract_webdigitized_data(
     json_file_name: str,
@@ -266,7 +265,7 @@ def compare_gauss_lobatto_nodes(
 def main():
     """Função principal para execução do script."""
     clear_terminal()
-    #abramowitz_fig_22_1(json_file_name='abramowitz_fig_22_1.json')
+    abramowitz_fig_22_1(json_file_name='abramowitz_fig_22_1.json')
     compare_jacobi_methods(alpha=0, beta=0)
     compare_quadrature_nodes_weights(alpha=0.0, beta=0.0, N=4)
     compare_gauss_lobatto_nodes(alpha=0.0, beta=0.0, N=4)

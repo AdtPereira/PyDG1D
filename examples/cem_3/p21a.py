@@ -9,7 +9,7 @@ ESTE SCRIPT UTILIZA CAMINHOS ABSOLUTOS E NÃO ALTERA O DIRETÓRIO DE TRABALHO
 EXECUÇÃO:
 cd C:\\git\\PyDG1D
 conda activate pyDG1D
-python examples\\cem_3p21a.py
+python examples\\cem_3p\\21a.py
 
 ══════════════════════════════════════════════════════════════════════════
 
@@ -83,13 +83,31 @@ c_ = 1              # Velocidade da luz no vácuo normalizada
 eta_ = 1            # Impedância característica normalizada
 kx = MODE * np.pi   # Número de onda
 
+PROBLEM = {
+        'description': 'Computational Electromagnetics List 2 - Problem 1',
+        'DIM': 1,                  # Dimensão do problema
+        'name': 'p21',          # Nome do problema
+        'folder': 'cem_3',       # Pasta do problema
+        'advec_speed': 2.0,     # Velocidade de advecção
+        'flux_type': 'Upwind',  # Tipo de fluxo: Upwind ou Centered
+        'cfl': 0.75,
+        'tmax': 5.0,            # Tempo final da simulação
+        'L': 50.0,              # Comprimento do domínio
+        'n_order': 4,           # Ordem de interpolação polinomial
+        'k_elem': 40,
+        # 'initial_cond': analytical_solution,  # Condição inicial: pulso degrau periódico
+        # 'source': {                     # Fonte do problema    
+        #     'type': 'step',
+        #     'position': 'centered',     # Posição do pulso: 'left', 'centered' ou 'right'
+        #     'n_cells_on_pulse': 2}      # número inteiro de células com valor 1
+    }
 
-def analytical_solution_E(x, t):
+def analytical_Ez(x, t):
     """ Solução analítica para o campo elétrico E. """
     return np.sin(kx * x) * np.cos(kx * c_ * t)
 
 
-def analytical_solution_H(x, t):
+def analytical_Hy(x, t):
     """ Solução analítica para o campo magnético H. """
     return - np.cos(kx * x) * np.sin(c_ * kx * t) / eta_
 
@@ -108,7 +126,7 @@ def max_L2_error(N, K, FinalTime, flux_type):
     error_data = L2_error_fields(
         sp,
         driver,
-        analytical_fields={"E": analytical_solution_E},
+        analytical_fields={"E": analytical_Ez},
         n_steps=int(FinalTime / driver.dt)
     )
 
@@ -163,7 +181,9 @@ def plot_convergence_errors(loglog_data, k_list, flux_type, FinalTime, epsilon=1
     plt.grid(True, which="both", ls="--", alpha=0.6)
     plt.legend()
     plt.tight_layout()
-    plt.show()
+    path = f"examplesData/outputs/{PROBLEM['folder']}/{PROBLEM['name']}"
+    file_name = f"_discrete_L2-error_Ehz_T{PROBLEM['tmax']:.0f}_{PROBLEM['flux_type']}_flux.svg"
+    plt.savefig(f"{path}/{file_name}", dpi=300, bbox_inches='tight', pad_inches=0.1)
 
 
 def run_convergence_rate_study(FinalTime=20.0, flux_type="Upwind") -> pd.DataFrame:
@@ -219,3 +239,4 @@ def main() -> None:
 
 if __name__ == '__main__':
     main()
+    plt.show()

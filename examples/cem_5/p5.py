@@ -329,9 +329,9 @@ def plot_nodal_basis_3d(N, N_grid=12):
     R, S, T, _ = generate_reference_grid_3d(graph_mode=False, N_grid=N_grid)
 
     # Avaliação da base
-    V_nodal = vandermonde3D(N, rn, sn, tn)
+    V_nodal = vandermonde(N, rn, sn, tn)
     Vinv = np.linalg.inv(V_nodal)
-    V_eval = vandermonde3D(N, R, S, T)
+    V_eval = vandermonde(N, R, S, T)
     node_types = classify_nodal_functions_3d(N)
 
     # Subplots

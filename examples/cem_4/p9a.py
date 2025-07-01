@@ -20,9 +20,10 @@ from mesher.create_mesh import *
 from maxwell.utils import *
 
 BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': None, 'name': 'outermost_domain'}]
-
-PROBLEM = {'name': 'cem_4p9',
-    'folder_name': 'cem_4p9',
+PROBLEM = {
+    'DIM': 2,
+    'name': 'p9',
+    'folder_name': 'cem_4',
     'description': 'Análise espectral de um pulso gaussiano propagante em 2D',
     'flux_type': 'Upwind',    # 'Upwind' or 'Centered'
     'bc': "PEC",        # Condição de contorno do problema: Perfect Electric Conductor (PEC)

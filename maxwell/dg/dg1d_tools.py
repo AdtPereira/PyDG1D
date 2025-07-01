@@ -3,8 +3,6 @@ import scipy.special
 import math
 
 DIMENSION = 1
-
-# n_faces, n_fp
 n_faces = 2
 n_fp = 1
 
@@ -37,12 +35,12 @@ def jacobiGL(alpha, beta, n_order):
 
 
 def jacobi_gauss(alpha, beta, n_order):
-
-    # JacobiGQ(alpha,beta,N) in Hesthaven
     """
-    Compute the order n_order Gauss quadrature points, x, 
-    and weights, w, associated with the Jacobi 
-    polynomial, of type (alpha,beta) > -1 ( <> -0.5).
+    % function [x,w] = JacobiGQ(alpha,beta,N)
+    % Purpose: Compute the N'th order Gauss quadrature points, x, 
+    %          and weights, w, associated with the Jacobi 
+    %          polynomial, of type (alpha,beta) > -1 ( <> -0.5).
+
     >>> s1 = jacobi_gauss(2,1,0)
     >>> s2 = [-0.2,  2]
     >>> np.allclose(s1,s2)
@@ -74,18 +72,22 @@ def jacobi_gauss(alpha, beta, n_order):
     for i in range(n_order+1):
         h1[i] = 2*i+alpha+beta
 
-    j_matrix = np.diag(-0.5*(alpha**2-beta**2)/(h1+2)/h1) \
-        + np.diag(2/(h1[0:n_order]+2)
-                  * np.sqrt(aux*(aux+alpha+beta)*(aux+alpha)
-                            * (aux+beta)/(h1[0:n_order]+1)/(h1[0:n_order]+3)), 1)
+    # Temporarily ignore "invalid value" and "divide by zero" warnings
+    with np.errstate(divide='ignore', invalid='ignore'):
+        # This calculation is known to produce a harmless NaN when alpha + beta = 0
+        j_matrix = np.diag(-0.5*(alpha**2-beta**2)/(h1+2)/h1) \
+            + np.diag(2/(h1[0:n_order]+2)
+                    * np.sqrt(aux*(aux+alpha+beta)*(aux+alpha)
+                                * (aux+beta)/(h1[0:n_order]+1)/(h1[0:n_order]+3)), 1)
 
+    # The code then proceeds to correct the NaN value as before
     eps = np.finfo(float).eps
-
     if (alpha+beta < 10*eps):
         j_matrix[0, 0] = 0.0
 
     j_matrix += np.transpose(j_matrix)
 
+    # Compute quadrature by eigenvalue solve
     [e_val, e_vec] = np.linalg.eig(j_matrix)
 
     points = e_val

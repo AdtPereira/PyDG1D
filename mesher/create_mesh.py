@@ -147,8 +147,6 @@ def mesh_rectangular_pml_domain(PROBLEM, PML_DESIGN, BOUNDARY, MATERIAL, h, view
         # basic_info()
 
     # Create mesh Structure Data from gmsh
-    mesh_data['cell'] = get_cell_data(MATERIAL)
-    mesh_data['nodes'] = get_nodes_data(BOUNDARY, dim=2)
     mesh_data['VX'] = VX
     mesh_data['VY'] = VY
     mesh_data['EToV'] = EToV

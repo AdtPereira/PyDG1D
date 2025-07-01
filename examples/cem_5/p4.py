@@ -204,7 +204,7 @@ def main():
 
     for N in orders:
         r, s, t = set_nodes_in_equilateral_tetrahedron(N)
-        V = vandermonde3D(N, r, s, t)
+        V = vandermonde(N, r, s, t)
         cond = np.linalg.cond(V)
         condition_numbers.append((N, cond))
     

@@ -9,7 +9,7 @@ ESTE SCRIPT UTILIZA CAMINHOS ABSOLUTOS E NÃO ALTERA O DIRETÓRIO DE TRABALHO
 EXECUÇÃO:
 cd C:\\git\\PyDG1D
 conda activate pyDG1D
-python examples\\cem_3p21.py
+python examples\\cem_3p\\21.py
 
 ══════════════════════════════════════════════════════════════════════════
 
@@ -83,12 +83,12 @@ eta_ = 1            # Impedância característica normalizada
 kx = MODE * np.pi   # Número de onda
 
 
-def analytical_solution_E(x, t):
+def analytical_Ez(x, t):
     """ Solução analítica para o campo elétrico E. """
     return np.sin(kx * x) * np.cos(kx * c_ * t)
 
 
-def analytical_solution_H(x, t):
+def analytical_Hy(x, t):
     """ Solução analítica para o campo magnético H. """
     return - np.cos(kx * x) * np.sin(c_ * kx * t) / eta_
 
@@ -187,8 +187,8 @@ def main() -> None:
     # Animação dos campos E e H com soluções analíticas
     animate_fields(
         sp, driver,
-        analytical_E=analytical_solution_E,
-        analytical_H=analytical_solution_H,
+        analytical_E=analytical_Ez,
+        analytical_H=analytical_Hy,
         n_frames=150)
 
     # Cálculo do erro L2 entre a solução numérica e analítica
@@ -202,6 +202,7 @@ def main() -> None:
 
     # Plotando o erro L2 ao longo do tempo
     # plot_L2_error_evolution(error_E_field)
+
 
 if __name__ == '__main__':
     main()

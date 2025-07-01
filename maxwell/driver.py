@@ -98,3 +98,4 @@ class MaxwellDriver:
         self.fields = self.sp.buildFields()
         
         return A
+    

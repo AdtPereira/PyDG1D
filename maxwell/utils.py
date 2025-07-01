@@ -129,14 +129,13 @@ def compute_L2_error(sp, uh, ua):
         Erro global na norma L2.
     """
     err = ua - uh
-    M = sp.mass            # (Np x Np)
-    J = sp.jacobian        # (Np x K)
+    M = sp.mass 
     K = sp.mesh.number_of_elements()
     errL2_local = np.zeros(K)
 
     for k in range(K):
-        Jk = np.diag(J[:, k])         # (Np x Np)
-        ek = err[:, k][:, np.newaxis] # (Np x 1)
+        Jk = np.diag(sp.jacobian[:, k])           # (Np x Np)
+        ek = err[:, k][:, np.newaxis]             # (Np x 1)
         errL2_local[k] = (ek.T @ Jk @ M @ ek)[0, 0]
     return np.sqrt(np.sum(errL2_local))
 

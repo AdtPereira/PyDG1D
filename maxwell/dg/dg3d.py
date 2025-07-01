@@ -1,7 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
 
 from .dg3d_tools import *
+from .dg1d_tools import jacobi_gauss
 from .mesh3d import Mesh3D
 from ..integrators.LSERK4 import *
 from ..spatialDiscretization import *
@@ -23,20 +23,20 @@ class Maxwell3D(SpatialDiscretization):
         self.mu = np.ones(mesh.number_of_elements())
 
         r, s, t = xyz_to_rst(*set_nodes_in_equilateral_tetrahedron(n_order))
-        self.V = vandermonde3D(n_order, r, s, t)
-        self.mass_matrix = mass_matrix(n_order, r, s, t)
-        self.Dr, self.Ds, self.Dt = differentiation_matrices_3d(n_order, r, s, t, self.V)
-        self.x, self.y, self.z = nodes_coordinates(n_order, mesh)
+        self.V = vandermonde(n_order, r, s, t)
+        self.mass = massMatrix(n_order, r, s, t)
+        self.Dr, self.Ds, self.Dt = derivateMatrix(n_order, r, s, t, self.V)
+        self.x, self.y, self.z = nodesCoordinates(n_order, mesh)
 
-        self.lift = lift3D(n_order)
+        self.lift = lift(n_order)
         self.EToE, self.EToF = mesh.connectivityMatrices()
 
-        self.rx, self.sx, self.tx, self.ry, self.sy, self.ty, self.rz, self.sz, self.tz, self.jacobian = geometricFactors3D(
+        self.rx, self.sx, self.tx, self.ry, self.sy, self.ty, self.rz, self.sz, self.tz, self.jacobian = geometricFactors(
             self.x, self.y, self.z, self.Dr, self.Ds, self.Dt)
         
         self.fmask, _, _, _, _ = buildFMask(n_order)
 
-        self.nx, self.ny, self.nz, sJ = normals3D(self.x, self.y, self.z, self.Dr, self.Ds, self.Dt, n_order)
+        self.nx, self.ny, self.nz, sJ = normals(self.x, self.y, self.z, self.Dr, self.Ds, self.Dt, n_order)
         self.f_scale = sJ/self.jacobian[self.fmask.ravel('F')]
 
         self.buildMaps()

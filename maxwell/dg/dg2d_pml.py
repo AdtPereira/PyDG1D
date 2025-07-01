@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from .dg2d_tools import *
+from .dg1d_tools import jacobi_gauss
 from .mesh2d import Mesh2D
 from ..integrators.LSERK4 import *
 from ..spatialDiscretization import *

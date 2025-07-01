@@ -83,7 +83,7 @@ from maxwell.utils import *
 BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]
 MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]   
 INFO_GRAPH = {'cell': False, 'nodes': False, 'edges': False, 'edges_numb': False, 'filepath': 'examplesData/inputs/cem_4p8/cem_4p8.svg'}
-PROBLEM = {'name': 'cem_4p8b', 'folder_name': 'cem_4p8', 'description': 'Teste de convergência do esquema DGTD bidimensional TMz.',
+PROBLEM = {'DIM': 2, 'name': 'p8b', 'folder_name': 'cem_4', 'description': 'Teste de convergência do esquema DGTD bidimensional TMz.',
     'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
     'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
     'cfl': 0.1,                 # Número de Courant-Friedrichs-Lewy
@@ -182,7 +182,7 @@ def single_test_solution(PROBLEM) -> None:
     mesh_data = mesh_rectangular_domain(PROBLEM, BOUNDARY, MATERIAL, h=10, view_mesh=False, mesh_info=False) 
 
     # Visualizar a malha criada
-    plot_triangular_mesh(INFO_GRAPH, mesh_data)
+    # plot_triangular_mesh(INFO_GRAPH, mesh_data)
 
     # Solução analítica
     # sa.plot_analytical_field()
