@@ -1,8 +1,8 @@
 import os
 import gmsh
 
-from .read_mesh import *
-from .create_mesh import mesh_cubeK6    
+from mesher.read_mesh import *
+from mesher.create_mesh import mesh_cubeK6    
 
 if __name__ == "__main__":
     # Clear terminal

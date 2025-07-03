@@ -385,3 +385,49 @@ class Maxwell3D(SpatialDiscretization):
         return {'Hx': rhs_Hx, 'Hy': rhs_Hy, 'Hz': rhs_Hz,
                 'Ex': rhs_Ex, 'Ey': rhs_Ey, 'Ez': rhs_Ez}
     
+    def interpolate_dg_solution(self, uh, resolution=10):
+        """
+        Interpola a solução DG (uh) para uma grade de visualização densa dentro de cada elemento.
+
+        Parâmetros
+        ----------
+        uh : ndarray
+            Vetor da solução numérica com shape (Np, K), onde K é o número
+            de elementos e Np o número de pontos por elemento.
+        resolution : int, optional
+            A ordem da grade de interpolação. Um valor maior gera uma visualização
+            mais suave. O padrão é 10.
+
+        Retorna
+        -------
+        x_interp, y_interp, z_interp : ndarray
+            Arrays achatados com as coordenadas (x, y, z) dos pontos interpolados.
+        uh_interp : ndarray
+            Array achatado com os valores da solução interpolada nesses pontos.
+        """
+        # 1. Gerar uma grade densa de pontos no tetraedro de referência.
+        # Usamos EquiNodes3D para criar pontos uniformemente espaçados em (r,s,t).
+        r_interp, s_interp, t_interp = EquiNodes3D(resolution)
+
+        # 2. Construir a matriz de interpolação.
+        # `V` é a Vandermonde dos nós da solução. `V_interp` é a dos nós de interpolação.
+        V_interp = vandermonde(self.n_order, r_interp, s_interp, t_interp) #
+        invV = np.linalg.inv(self.V) # self.V foi calculado no __init__.
+        interp_matrix = V_interp @ invV
+
+        # 3. Mapear os pontos da grade de interpolação para as coordenadas físicas.
+        # Usamos o método auxiliar definido acima.
+        x_interp, y_interp, z_interp = map_reference_to_physical_nodes(self.mesh, r_interp, s_interp, t_interp)
+
+        # 4. Aplicar a interpolação à solução `uh`.
+        # O operador @ faz a multiplicação de matriz para cada elemento (coluna de uh).
+        uh_interp = interp_matrix @ uh
+
+        # 5. Retornar os arrays achatados, prontos para a plotagem com scatter.
+        # A ordem 'F' (Fortran) é consistente com o resto do seu código.
+        return (
+            x_interp.ravel('F'),
+            y_interp.ravel('F'),
+            z_interp.ravel('F'),
+            uh_interp.ravel('F'),
+        )

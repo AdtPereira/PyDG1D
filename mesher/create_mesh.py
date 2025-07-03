@@ -243,7 +243,7 @@ def mesh_single_conductor_domain(problem, h, view_mesh=False, auto_save=True):
 
 
 def mesh_cubeK6():
-    gmsh.model.add("unit_cube_structured")
+    gmsh.model.add("cubeK6")
 
     # 1. Cria o cubo da mesma forma que antes
     box = gmsh.model.occ.addBox(0, 0, 0, 1, 1, 1)
@@ -273,4 +273,58 @@ def mesh_cubeK6():
     gmsh.option.setNumber("Mesh.SubdivisionAlgorithm", 1)
 
     # 5. Gera a malha 3D
+    gmsh.model.mesh.generate(3)
+
+
+def mesh_cubeK24(L):
+    gmsh.model.add("cubeK24")
+
+    # 1. Cria o cubo da mesma forma que antes
+    box = gmsh.model.occ.addBox(0, 0, 0, L, L, L)
+    gmsh.model.occ.synchronize()
+
+    # 5. Gera a malha 3D
+    gmsh.option.setNumber("Mesh.MeshSizeMax", value=1)
+    gmsh.option.setNumber("Mesh.MeshSizeMin", value=1)
+    gmsh.model.mesh.generate(3)
+
+
+def mesh_cubeK168_umpl():
+    WAVELENGTH = 1
+
+    # --- Parâmetros Geométricos e de Malha ---
+    h = WAVELENGTH / 0.10
+    L = WAVELENGTH / 2
+    x0 = WAVELENGTH
+
+    gmsh.model.add("cubeK168_upml")
+    factory = gmsh.model.occ
+
+    # --- Criação da Geometria ---
+    total_field_domain = factory.addBox(-x0, -x0, -x0, 2*x0, 2*x0, 2*x0)
+    scattered_field_boundary = factory.addBox(-x0 - L, -x0 - L, -x0 - L, 2*(x0 + L), 2*(x0 + L), 2*(x0 + L))
+    pml_boundary = factory.addBox(-x0 - 2*L, -x0 - 2*L, -x0 - 2*L, 2*(x0 + 2*L), 2*(x0 + 2*L), 2*(x0 + 2*L))
+
+    pml_map, _ = factory.cut([(3, pml_boundary)], [(3, scattered_field_boundary)], removeTool=False)
+    scattered_field_map, _ = factory.cut([(3, scattered_field_boundary)], [(3, total_field_domain)], removeTool=False)
+
+    factory.synchronize()
+
+    # --- Definição dos Grupos Físicos ---
+    # Extrai a tag numérica de cada volume criado.
+    # O resultado das operações de corte pode ter mais de um volume, mas aqui sabemos que é apenas um.
+    pml_tag = pml_map[0][1]
+    scattered_field_tag = scattered_field_map[0][1]
+    # A tag do domínio total-field é a original, que geralmente é 1
+    total_field_tag = total_field_domain
+
+    # Atribui cada volume a um grupo físico com um nome e uma tag numérica única.
+    # A dimensão é 3 para volumes.
+    gmsh.model.addPhysicalGroup(3, [total_field_tag], tag=301, name="Total Field")
+    gmsh.model.addPhysicalGroup(3, [scattered_field_tag], tag=302, name="Scattered Field")
+    gmsh.model.addPhysicalGroup(3, [pml_tag], tag=303, name="PML")
+
+    # --- Malha ---
+    gmsh.option.setNumber("Mesh.MeshSizeMax", h)
+    gmsh.option.setNumber("Mesh.MeshSizeMin", h)
     gmsh.model.mesh.generate(3)

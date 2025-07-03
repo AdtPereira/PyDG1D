@@ -31,7 +31,7 @@ MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability':
             {'tag': 403, 'name': 'PML_III','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1},
             {'tag': 404, 'name': 'PML_IV','relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]
 
-T_LIST = np.linspace(0.0, 1.0, 9)
+T_LIST = np.linspace(0.0, 2.0, 9)
 
 PROBLEM = {
     'DIM': 2,

@@ -262,8 +262,6 @@ def rst_to_abc(r, s, t):
         % function [a,b,c] = rst_to_abc(r,s,t)
         % Purpose : Transfer from (r,s,t) -> (a,b,c) coordinates in tetrahedron
 
-        Converte coordenadas (r, s, t) do tetraedro de referência para (a, b, c) no domínio do polinômio ortonormal.
-
         Parâmetros:
         -----------
         r, s, t : array_like
@@ -468,50 +466,51 @@ def gradSimplexP(a, b, c, id: int, jd: int, kd: int):
 
     return V3Dr, V3Ds, V3Dt
 
-def nodesCoordinates(N, msh: mesh.Mesh3D):
+def map_reference_to_physical_nodes(msh, r_ref, s_ref, t_ref):
     """
-    Constrói as coordenadas físicas (x, y, z) de todos os elementos da malha 3D
-    a partir dos nós de referência do tetraedro.
+    Mapeia um conjunto de nós (r, s, t) do tetraedro de referência para as
+    coordenadas físicas (x, y, z) de todos os elementos da malha.
 
-    Parâmetros:
-        N   : Ordem do polinômio
-        msh : objeto Mesh3D contendo vx, vy, vz e EToV
+    Parâmetros
+    ----------
+    msh : Mesh3D
+        O objeto de malha contendo a conectividade e as coordenadas dos vértices.
+    r_ref, s_ref, t_ref : ndarray
+        Arrays 1D com as coordenadas dos nós no elemento de referência.
 
-    Retorna:
-        x, y, z : arrays (Np, K) com coordenadas físicas dos nós
+    Retorna
+    -------
+    x, y, z : ndarray
+        Arrays com as coordenadas físicas dos nós, com shape (len(r_ref), K).
     """
+    # Índices dos vértices para cada elemento.
     va = msh.EToV[:, 0]
     vb = msh.EToV[:, 1]
     vc = msh.EToV[:, 2]
     vd = msh.EToV[:, 3]
 
-    r, s, t = xyz_to_rst(*set_nodes_in_equilateral_tetrahedron(N))  # shape (Np,)
-    r = r[:, None]  # shape (Np, 1)
-    s = s[:, None]
-    t = t[:, None]
+    # Garante que os arrays de referência tenham a forma (Np, 1) para broadcasting.
+    r = r_ref.reshape(-1, 1)
+    s = s_ref.reshape(-1, 1)
+    t = t_ref.reshape(-1, 1)
 
-    x = 0.5 * (
-        -(1+r+s+t) * msh.vx[va][None, :] +
-        (1 + r) * msh.vx[vb][None, :] +
-        (1 + s) * msh.vx[vc][None, :] +
-        (1 + t) * msh.vx[vd][None, :]
-    )
+    # Fórmula de interpolação linear baseada nos vértices de cada tetraedro.
+    x = 0.5 * (-(1 + r + s + t) * msh.vx[va] + (1 + r) * msh.vx[vb] + (1 + s) * msh.vx[vc] + (1 + t) * msh.vx[vd])
+    y = 0.5 * (-(1 + r + s + t) * msh.vy[va] + (1 + r) * msh.vy[vb] + (1 + s) * msh.vy[vc] + (1 + t) * msh.vy[vd])
+    z = 0.5 * (-(1 + r + s + t) * msh.vz[va] + (1 + r) * msh.vz[vb] + (1 + s) * msh.vz[vc] + (1 + t) * msh.vz[vd])
 
-    y = 0.5 * (
-        -(1+r+s+t) * msh.vy[va][None, :] +
-        (1 + r) * msh.vy[vb][None, :] +
-        (1 + s) * msh.vy[vc][None, :] +
-        (1 + t) * msh.vy[vd][None, :]
-    )
+    return x, y, z
 
-    z = 0.5 * (
-        -(1+r+s+t) * msh.vz[va][None, :] +
-        (1 + r) * msh.vz[vb][None, :] +
-        (1 + s) * msh.vz[vc][None, :] +
-        (1 + t) * msh.vz[vd][None, :]
-    )
-
-    return x, y, z  # shape (Np, K)
+def nodesCoordinates(N, msh: mesh.Mesh3D):
+    """
+    Constrói as coordenadas físicas (x, y, z) dos nós de solução DG
+    para uma dada ordem N.
+    """
+    # Gera os nós de referência específicos para a ordem N.
+    r, s, t = xyz_to_rst(*set_nodes_in_equilateral_tetrahedron(N))
+    
+    # Chama a função de mapeamento genérica.
+    return map_reference_to_physical_nodes(msh, r, s, t)
 
 def buildFMask(N):
     r, s, t  = xyz_to_rst(*set_nodes_in_equilateral_tetrahedron(N))
@@ -842,3 +841,4 @@ def Curl3D(Ux, Uy, Uz, Dr, Ds, Dt, rx, sx, tx, ry, sy, ty, rz, sz, tz):
     curly -= rx * ddr + sx * dds + tx * ddt
 
     return curlx, curly, curlz
+

@@ -78,177 +78,31 @@ from maxwell.dg.dg3d import *
 from maxwell.dg.dg1d_tools import jacobi_gauss
 from maxwell.driver import *
 from maxwell.integrators.LSERK4 import *
+from maxwell.utils import *
+from maxwell.spectralAnalyzer import ResonantCavity3D
+
 from mesher.create_mesh import *
 from mesher.plot_mesh import *
-from maxwell.utils import *
 
 
 MATDATA = loadmat('C:\git\PyDG1D\examplesData\inputs\hesthaven_3D\dados.mat')
 BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]
 MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]   
 INFO_GRAPH = {'cell': False, 'nodes': False, 'edges': False, 'edges_numb': False, 'filepath': 'examplesData/inputs/hesthaven/3D_cavity/3D_cavity.svg'}
-PROBLEM = {'DIM': 3, 'name': '3D_cavity', 'folder_name': 'hesthaven', 'description': 'Teste de convergência do esquema DGTD tridimensional TMz.',
+PROBLEM = {
+    'DIM': 3,
+    'name': '3D_cavity',
+    'folder_name': 'hesthaven',
+    'description': 'Teste de convergência do esquema DGTD tridimensional TMz.',
     'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
     'flux_type': 'Centered',    # 'Upwind' or 'Centered'
-    't_0': 0.0,                 # Tempo inicial
+    't0': 0.0,                  # Tempo inicial
     'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
     'm': 1,                     # Número de modo
     'n': 1,                     # Número de modo
     'L': 1,                     # Dimensão total do domínio
     'n_order': 3,               # Ordem de interpolação polinomial
 }
-
-
-class SpectralAnalyzer:
-    def __init__(self, PROBLEM):
-        self.DIM = PROBLEM['DIM']
-        self.m = PROBLEM['m']
-        self.n = PROBLEM['n']
-        self.L = PROBLEM['L']
-        self.kx = self.m * np.pi / self.L
-        self.ky = self.n * np.pi / self.L
-        self.w = np.sqrt(self.kx**2 + self.ky**2)
-        self.t_0 = PROBLEM['t_0']
-        self.t_final = 10
-
-    def resonant_cavity_Ez(self, x, y, z, t):
-        return np.sin(self.kx * x) * np.sin(self.ky * y) * np.cos(self.w * t)
-
-    def resonant_cavity_Hx(self, x, y, z, t):
-        return - (self.ky / self.w) * np.sin(self.kx * x) * np.cos(self.ky * y) * np.sin(self.w * t)
-
-    def resonant_cavity_Hy(self, x, y, z, t):
-        return (self.kx / self.w) * np.cos(self.kx * x) * np.sin(self.ky * y) * np.sin(self.w * t)
-
-    def resonant_cavity_dyEz(self, x, y, z, t):
-        return (self.ky) * np.sin(self.kx * x) * np.cos(self.ky * y) * np.cos(self.w * t)
-
-    def resonant_cavity_dxEz(self, x, y, z, t):
-        return (self.kx) * np.cos(self.kx * x) * np.sin(self.ky * y) * np.cos(self.w * t)
-
-    def plot_analytical_field(self, Nx=50, Ny=50, Nz_slices=3):
-        """
-        Plota a solução analítica Ez sobre o domínio físico tridimensional,
-        utilizando fatias ao longo do eixo z.
-        """
-        # 1. Definição do domínio e tempo
-        L = self.L
-        T = 2 * np.pi / self.w
-        t_final = 3 * T
-
-        # 2. Criação da malha de visualização
-        x = np.linspace(-L/2, L/2, Nx)
-        y = np.linspace(-L/2, L/2, Ny)
-        z = np.linspace(-L/2, L/2, Nz_slices)
-        X, Y, Z = np.meshgrid(x, y, z, indexing='xy')
-
-        # 3. Avaliação da solução analítica
-        Ez = self.resonant_cavity_Ez(X, Y, Z, t_final)
-
-        # 4. Preparação para plotagem
-        cmap = plt.get_cmap('viridis')
-        norm = plt.Normalize(vmin=np.min(Ez), vmax=np.max(Ez))
-
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection='3d')
-        fig.suptitle(rf'Solução Analítica $E_z(x, y, z, t = 3T = {t_final:.2f} s)$', fontsize=14)
-
-        # 5. Plotagem das fatias
-        for i in range(Nz_slices):
-            Xi, Yi, Zi = X[:, :, i].T, Y[:, :, i].T, Z[:, :, i].T
-            Ezi = Ez[:, :, i]
-            z_val = Z[0, 0, i]
-            ax.contourf(Xi, Yi, Ezi, zdir='z', offset=z_val, cmap=cmap, norm=norm, alpha=0.7)
-
-        # 6. Configurações do gráfico
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('z')
-        ax.set_xlim(-L/2, L/2)
-        ax.set_ylim(-L/2, L/2)
-        ax.set_zlim(-L/2, L/2)
-        ax.set_title(r'Campo $E_z$ em fatias ao longo do eixo $z$')
-
-        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        sm._A = []
-        fig.colorbar(sm, ax=ax, shrink=0.6, aspect=12, label=r'$E_z$')
-
-        ax.view_init(elev=25, azim=-135)
-
-    def plot_analytical_field_at_faces(self, Nx=50, Ny=50, Nz=50, x_slice=None, y_slice=None, z_slice=None): 
-        """
-        Plota as paredes do domínio (planos YZ, XZ e XY) em um único gráfico 3D,
-        coloridas pela amplitude do campo Ez.
-        """
-        # 1. Definição de cortes padrão
-        L = self.L
-        if x_slice is None:
-            x_slice = -L / 2
-        if y_slice is None:
-            y_slice = +L / 2
-        if z_slice is None:
-            z_slice = -L / 2
-
-        # 2. Parâmetros temporais
-        T = 2 * np.pi / self.w if self.w > 0 else 1.0
-        t_final = 3 * T
-
-        # 3. Geração das grades
-        x_coords = np.linspace(-L/2, L/2, Nx)
-        y_coords = np.linspace(-L/2, L/2, Ny)
-        z_coords = np.linspace(-L/2, L/2, Nz)
-
-        # 4. Cálculo do campo completo para normalização
-        X_full, Y_full, Z_full = np.meshgrid(x_coords, y_coords, z_coords, indexing='ij')
-        Ez_full = self.resonant_cavity_Ez(X_full, Y_full, Z_full, t_final)
-        vmin, vmax = np.min(Ez_full), np.max(Ez_full)
-        cmap = plt.get_cmap('viridis')
-        norm = plt.Normalize(vmin=vmin, vmax=vmax)
-
-        # 5. Criação da figura 3D
-        fig = plt.figure(figsize=(12, 9))
-        ax = fig.add_subplot(111, projection='3d')
-        ax.set_title(rf'Paredes do Domínio com Campo $E_z$ (t = {t_final:.2f} s)', fontsize=16, pad=20)
-
-        # 6. Método auxiliar interno
-        def _plot_face(ax, fixed_axis, fixed_value, coords1, coords2, axis_labels):
-            """
-            Plota uma superfície com um dos eixos fixos.
-            - fixed_axis: str, 'x', 'y' ou 'z'
-            - fixed_value: valor fixo dessa coordenada
-            - coords1, coords2: vetores das outras duas coordenadas
-            - axis_labels: tupla com nomes das variáveis das duas direções variáveis
-            """
-            A, B = np.meshgrid(coords1, coords2, indexing='ij')
-            if fixed_axis == 'x':
-                X, Y, Z = np.full_like(A, fixed_value), A, B
-            elif fixed_axis == 'y':
-                X, Y, Z = A, np.full_like(A, fixed_value), B
-            elif fixed_axis == 'z':
-                X, Y, Z = A, B, np.full_like(A, fixed_value)
-            else:
-                raise ValueError("Eixo fixo inválido.")
-            
-            Ez_slice = self.resonant_cavity_Ez(X, Y, Z, t_final)
-            colors = cmap(norm(Ez_slice))
-            ax.plot_surface(X, Y, Z, facecolors=colors, shade=False)
-
-        # 7. Plotagem das superfícies
-        _plot_face(ax, 'x', x_slice, y_coords, z_coords, ('y', 'z'))  # Plano YZ
-        _plot_face(ax, 'y', y_slice, x_coords, z_coords, ('x', 'z'))  # Plano XZ
-        _plot_face(ax, 'z', z_slice, x_coords, y_coords, ('x', 'y'))  # Plano XY
-
-        # 8. Configurações finais
-        ax.set_xlabel('Eixo X (m)')
-        ax.set_ylabel('Eixo Y (m)')
-        ax.set_zlabel('Eixo Z (m)')
-        ax.set_xlim(-L/2, L/2)
-        ax.set_ylim(-L/2, L/2)
-        ax.set_zlim(-L/2, L/2)
-        
-        mappable = cm.ScalarMappable(cmap=cmap, norm=norm)
-        fig.colorbar(mappable, ax=ax, shrink=0.6, aspect=10, label=r'Amplitude $E_z$')        
-        ax.view_init(elev=25, azim=-60)
 
 
 def single_test_validation(PROBLEM) -> None:
@@ -268,7 +122,7 @@ def single_test_validation(PROBLEM) -> None:
     -------
     None
     """
-    sa = SpectralAnalyzer(PROBLEM)
+    sa = ResonantCavity3D(PROBLEM)
     
     # 1. Criar a malha retangular com Gmsh
     gmsh.initialize()
@@ -280,17 +134,15 @@ def single_test_validation(PROBLEM) -> None:
 
     # 2. Criar o objeto Mesh3D 
     mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=PROBLEM['bc'])
+    mesh.plot_mesh(title="mesh_cubeK6.msh", show_vertices=True, alpha=0.15)
     EToE, EToF = mesh.connectivityMatrices()
+    plot_cubeK6_mesh(VX, VY, VZ, EToV)
 
     print(f"\nMalha criada com {mesh.number_of_vertices()} vértices e {mesh.number_of_elements()} elementos.")
     print(f"\nCoordenadas dos nós (VX, VY, VZ):\n{mesh.vx}\n{mesh.vy}\n{mesh.vz}")
     print(f"\nConectividade dos elementos (EToV):\n{mesh.EToV}")
     print(f"\nConectividade elemento a elemento (EToE):\n{EToE}")
     print(f"\nConectividade elemento a face (EToF):\n{EToF}") 
-
-    # # Solução analítica
-    # sa.plot_analytical_field()
-    # sa.plot_analytical_field_at_faces()
 
     # 3. Definir a discretização espacial usando DG3D
     sp = Maxwell3D(n_order=PROBLEM['n_order'], mesh=mesh, fluxType=PROBLEM['flux_type'])
@@ -301,7 +153,7 @@ def single_test_validation(PROBLEM) -> None:
     x, y, z = nodesCoordinates(sp.n_order, mesh)
 
     # 5. Campo E = (0, 0, Ez)
-    Ez = sa.resonant_cavity_Ez(x, y, z, t=sa.t_0)
+    Ez = sa.Ez_field(x, y, z, t=sa.t0)
     Ex = np.zeros_like(Ez)
     Ey = np.zeros_like(Ez)
 
@@ -310,8 +162,8 @@ def single_test_validation(PROBLEM) -> None:
         Ex, Ey, Ez, sp.Dr, sp.Ds, sp.Dt, sp.rx, sp.sx, sp.tx, sp.ry, sp.sy, sp.ty, sp.rz, sp.sz, sp.tz)
 
     # 7. Cálculo do rotacional analítico
-    curlx_analytical = +sa.resonant_cavity_dyEz(x, y, z, t=sa.t_0)
-    curly_analytical = -sa.resonant_cavity_dxEz(x, y, z, t=sa.t_0)
+    curlx_analytical = +sa.dyEz_field(x, y, z, t=sa.t0)
+    curly_analytical = -sa.dxEz_field(x, y, z, t=sa.t0)
 
     # 8. Erro quadrático médio
     def rmse(u_num, u_ref):
@@ -331,6 +183,13 @@ def single_test_validation(PROBLEM) -> None:
     print(f"\n🌐 Erro na norma L2 do operador 'Curl3D':")
     print(f"    curl_x  → {L2x_error:.3e}")
     print(f"    curl_y  → {L2y_error:.3e}")
+
+    # Plot da solução ANALÍTICA
+    xi, yi, zi, ezi_dg = sp.interpolate_dg_solution(Ez, resolution=12)
+    ezi_analytical = sa.Ez_field(xi, yi, zi, t=np.zeros_like(ezi_dg))
+    sa.plot_field(x_i=xi, y_i=yi, z_i=zi, field_data=ezi_analytical,
+        title=f"Solução Analítica em t={PROBLEM['t0']:.1f}s"
+    )
 
     print("\n🔍 Verificando equivalência dos resultados Python e MATLAB ...")
     RTOL = 1e-10
@@ -438,7 +297,7 @@ def L2_error_study(PROBLEM):
     """
 
     # Configurações comuns
-    sa = SpectralAnalyzer(PROBLEM)
+    sa = ResonantCavity3D(PROBLEM)
     t_final = sa.t_final
     n_list = [4, 6, 8, 10]
     flux_types = ['Upwind', 'Centered']
@@ -465,10 +324,10 @@ def L2_error_study(PROBLEM):
             driver = MaxwellDriver(sp, CFL=PROBLEM['cfl'])
 
             # Condição inicial
-            driver['Ez'][:] = sa.resonant_cavity_Ez(sp.x, sp.y, sp.z, 0)
+            driver['Ez'][:] = sa.Ez_field(sp.x, sp.y, sp.z, 0)
 
             # Preparar dados
-            analytical_fields = {'Ez': sa.resonant_cavity_Ez}
+            analytical_fields = {'Ez': sa.Ez_field}
             error_data = {'time': [], 'L2_error': {key: [] for key in analytical_fields}}
             t = 0.0
 

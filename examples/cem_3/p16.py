@@ -147,7 +147,7 @@ def single_test_solution(problem) -> None:
         fluxType=problem['flux_type'])
     
     # Initialize the solver
-    LinAdvecDriver1D(problem, sp).single_test()    
+    LinAdvecDriver1D(problem, sp).run_single_test()    
 
 
 def run_convergence_simulations(problem: dict, k_list: list):

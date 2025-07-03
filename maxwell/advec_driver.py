@@ -408,7 +408,7 @@ class LinAdvecDriver1D:
         print(f"📄 Soluções numéricas salvas em: {full_path}")
 
 
-    def single_test(self) -> None:
+    def run_single_test(self) -> None:
         """
         Testa a solução numérica comparando com a solução analítica.
 
