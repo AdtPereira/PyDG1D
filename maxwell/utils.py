@@ -110,34 +110,34 @@ def extract_webdigitized_data(json_path: str) -> tuple[np.ndarray, np.ndarray]:
     return x, y
 
 
-def compute_L2_error(sp, uh, ua):
-    """
-    Calcula o erro global na norma L2 usando errᵗ diag(J) M err para cada elemento.
+# def compute_L2_error(sp, uh, ua):
+#     """
+#     Calcula o erro global na norma L2 usando errᵗ diag(J) M err para cada elemento.
 
-    Parâmetros
-    ----------
-    sp : DG1D
-        Objeto com a discretização espacial.
-    u_h : ndarray
-        Solução numérica final do método DG (Np x K).
-    ua : ndarray
-        Solução analítica (Np x K).
+#     Parâmetros
+#     ----------
+#     sp : DG1D
+#         Objeto com a discretização espacial.
+#     u_h : ndarray
+#         Solução numérica final do método DG (Np x K).
+#     ua : ndarray
+#         Solução analítica (Np x K).
 
-    Retorno
-    -------
-    float
-        Erro global na norma L2.
-    """
-    err = ua - uh
-    M = sp.mass 
-    K = sp.mesh.number_of_elements()
-    errL2_local = np.zeros(K)
+#     Retorno
+#     -------
+#     float
+#         Erro global na norma L2.
+#     """
+#     err = ua - uh
+#     M = sp.mass 
+#     K = sp.mesh.number_of_elements()
+#     errL2_local = np.zeros(K)
 
-    for k in range(K):
-        Jk = np.diag(sp.jacobian[:, k])           # (Np x Np)
-        ek = err[:, k][:, np.newaxis]             # (Np x 1)
-        errL2_local[k] = (ek.T @ Jk @ M @ ek)[0, 0]
-    return np.sqrt(np.sum(errL2_local))
+#     for k in range(K):
+#         Jk = np.diag(sp.jacobian[:, k])           # (Np x Np)
+#         ek = err[:, k][:, np.newaxis]             # (Np x 1)
+#         errL2_local[k] = (ek.T @ Jk @ M @ ek)[0, 0]
+#     return np.sqrt(np.sum(errL2_local))
 
 
 def L2_error_E_field(sp, driver, analytical_E, n_steps):

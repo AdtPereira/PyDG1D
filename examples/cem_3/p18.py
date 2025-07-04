@@ -76,7 +76,7 @@ from maxwell.dg.mesh1d import *
 from maxwell.dg.dg1d import *
 from maxwell.integrators.LSERK4 import *
 from maxwell.utils import *
-from maxwell.advec_driver import LinAdvecDriver1D
+from maxwell.LinAdvecEquation import Driver1D
 
 
 def analytical_solution(problem_data, x, t):
@@ -207,7 +207,7 @@ def single_test_solution(problem) -> None:
         fluxType=problem['flux_type'])
     
     # Initialize the solver
-    LinAdvecDriver1D(problem, sp).run_single_test() 
+    Driver1D(problem, sp).run_single_test() 
 
 
 def run_convergence(problem):
@@ -244,7 +244,7 @@ def run_convergence(problem):
                 ),
                 fluxType=problem['flux_type'])
 
-            driver = LinAdvecDriver1D(problem, sp)
+            driver = Driver1D(problem, sp)
             driver.run(FinalTime=problem['tmax'])
             ua = analytical_solution(problem, sp.x, problem['tmax'])
             err = driver.ComputeL2Error(ua)
@@ -316,7 +316,7 @@ def compute_energy_evolution(problem: dict):
             fluxType=problem['flux_type'])
 
         u0 = np.sin(problem['kx'] / problem['lmbda'] * sp.x)
-        driver = LinAdvecDriver1D(problem, sp, u0)
+        driver = Driver1D(problem, sp, u0)
         driver.run(FinalTime=problem['tmax'])
 
         # Plot da energia

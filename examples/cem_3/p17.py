@@ -74,7 +74,7 @@ from maxwell.dg.mesh1d import *
 from maxwell.dg.dg1d import *
 from maxwell.integrators.LSERK4 import *
 from maxwell.utils import *
-from maxwell.advec_driver import LinAdvecDriver1D
+from maxwell.LinAdvecEquation import Driver1D
 
 
 def gaussian_pulse(problem_data, x, t):
@@ -142,7 +142,7 @@ def single_test_solution(problem) -> None:
         fluxType=problem['flux_type'])
     
     # Initialize the solver
-    LinAdvecDriver1D(problem, sp).run_single_test() 
+    Driver1D(problem, sp).run_single_test() 
 
 
 def main() -> None:

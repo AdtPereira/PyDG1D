@@ -842,3 +842,5 @@ def Curl3D(Ux, Uy, Uz, Dr, Ds, Dt, rx, sx, tx, ry, sy, ty, rz, sz, tz):
 
     return curlx, curly, curlz
 
+
+

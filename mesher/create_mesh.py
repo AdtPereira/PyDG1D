@@ -289,40 +289,35 @@ def mesh_cubeK24(L):
     gmsh.model.mesh.generate(3)
 
 
-def mesh_cubeK168_umpl():
-    WAVELENGTH = 1
-
+def mesh_cubeK96_upml(problem):
     # --- Parâmetros Geométricos e de Malha ---
-    h = WAVELENGTH / 0.10
-    L = WAVELENGTH / 2
-    x0 = WAVELENGTH
+    L = problem['pml']['L']         # Largura da camada da PML
+    h = problem['domain']['h']      # Tamanho máximo do elemento da malha
+    Lx = problem['domain']['Lx']    # Dimensão total do domínio na direção x
+    x0 = Lx - L                     # semi-lados do retângulo interno - Domínio Físico
 
     gmsh.model.add("cubeK168_upml")
     factory = gmsh.model.occ
 
     # --- Criação da Geometria ---
-    total_field_domain = factory.addBox(-x0, -x0, -x0, 2*x0, 2*x0, 2*x0)
-    scattered_field_boundary = factory.addBox(-x0 - L, -x0 - L, -x0 - L, 2*(x0 + L), 2*(x0 + L), 2*(x0 + L))
-    pml_boundary = factory.addBox(-x0 - 2*L, -x0 - 2*L, -x0 - 2*L, 2*(x0 + 2*L), 2*(x0 + 2*L), 2*(x0 + 2*L))
+    tfz = factory.addBox(-x0, -x0, -x0, 2*x0, 2*x0, 2*x0)
+    pml = factory.addBox(-Lx, -Lx, -Lx, 2*Lx, 2*Lx, 2*Lx)
 
-    pml_map, _ = factory.cut([(3, pml_boundary)], [(3, scattered_field_boundary)], removeTool=False)
-    scattered_field_map, _ = factory.cut([(3, scattered_field_boundary)], [(3, total_field_domain)], removeTool=False)
+    pml_domain, _ = factory.cut([(3, pml)], [(3, tfz)], removeTool=False)
 
     factory.synchronize()
 
     # --- Definição dos Grupos Físicos ---
     # Extrai a tag numérica de cada volume criado.
     # O resultado das operações de corte pode ter mais de um volume, mas aqui sabemos que é apenas um.
-    pml_tag = pml_map[0][1]
-    scattered_field_tag = scattered_field_map[0][1]
+    pmlTag = pml_domain[0][1]
     # A tag do domínio total-field é a original, que geralmente é 1
-    total_field_tag = total_field_domain
+    tfzTag = tfz
 
     # Atribui cada volume a um grupo físico com um nome e uma tag numérica única.
     # A dimensão é 3 para volumes.
-    gmsh.model.addPhysicalGroup(3, [total_field_tag], tag=301, name="Total Field")
-    gmsh.model.addPhysicalGroup(3, [scattered_field_tag], tag=302, name="Scattered Field")
-    gmsh.model.addPhysicalGroup(3, [pml_tag], tag=303, name="PML")
+    gmsh.model.addPhysicalGroup(3, [tfzTag], tag=301, name="TFZ")
+    gmsh.model.addPhysicalGroup(3, [pmlTag], tag=303, name="PML")
 
     # --- Malha ---
     gmsh.option.setNumber("Mesh.MeshSizeMax", h)

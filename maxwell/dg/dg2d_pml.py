@@ -471,11 +471,12 @@ class Maxwell2D(SpatialDiscretization):
         Jz = np.zeros((self.number_of_nodes_per_element(), self.mesh.number_of_elements()))
         Jz[:, :] = Ez * self.sigma
 
-        # -------- Termos extras da formulação PML ----------
-        # missing material epsilon/mu
+        # -------- Termos extras da formulação PML  ----------
+        # -------- missing material epsilon/mu      ----------
         rhs_Hx = -rhs_Ezy  - self.sigma_y * (2 * Hx + Py) + np.matmul(self.lift, self.f_scale * flux_Hx)/2.0
         rhs_Hy =  rhs_Ezx  - self.sigma_x * (2 * Hy + Px) + np.matmul(self.lift, self.f_scale * flux_Hy)/2.0
         rhs_Ez =  rhs_CuHz - self.dsigma_dx * Qx + self.dsigma_dy * Qy + np.matmul(self.lift, self.f_scale * flux_Ez)/2.0 - Jz
+        
         rhs_Px =  self.sigma_x * Hy
         rhs_Py =  self.sigma_y * Hx
         rhs_Qx = -self.sigma_x * Qx - Hy

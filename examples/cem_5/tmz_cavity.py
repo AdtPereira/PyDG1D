@@ -9,7 +9,7 @@ ESTE SCRIPT UTILIZA CAMINHOS ABSOLUTOS E NÃO ALTERA O DIRETÓRIO DE TRABALHO
 EXECUÇÃO:
 cd C:\\git\\PyDG1D
 conda activate pyDG1D
-python examples\\cem_5\\cavity.py
+python examples\\cem_5\\tmz_cavity.py
 
 ══════════════════════════════════════════════════════════════════════════
 
@@ -64,7 +64,6 @@ Data: 12/06/2025
 
 import os
 import sys
-from scipy.io import loadmat
 import matplotlib.pyplot as plt
 
 # Adiciona a raiz do projeto ao PYTHONPATH
@@ -80,14 +79,10 @@ from mesher.create_mesh import *
 from mesher.plot_mesh import *
 
 
-MATDATA = loadmat('C:\git\PyDG1D\examplesData\inputs\hesthaven_3D\dados.mat')
-BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]
-MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]   
-INFO_GRAPH = {'cell': False, 'nodes': False, 'edges': False, 'edges_numb': False, 'filepath': 'examplesData/inputs/hesthaven/3D_cavity/3D_cavity.svg'}
 PROBLEM = {
     'DIM': 3,
     'description': 'Teste de convergência do esquema DGTD tridimensional TMz.',
-    'name': 'cavity',
+    'name': 'tmz_cavity',
     'folder': 'cem_5',
     'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
     'flux_type': 'Centered',    # 'Upwind' or 'Centered'
@@ -155,14 +150,14 @@ def single_test_validation(PROBLEM) -> None:
         for field_name, analytical_fn in analytical_fields.items():
             uh = driver[field_name]
             ua = analytical_fn(sp.x, sp.y, sp.z, t)
-            l2_error = compute_L2_error(sp, uh, ua)
+            l2_error = sp.compute_L2_error(uh, ua)
             error_data['L2_error'][field_name].append(l2_error)
 
         driver.step()
         t += driver.dt
 
     # 4. Plotar resultados
-    plot_L2_error(error_data)
+    sa.plot_L2_error(error_data)
 
     # 5. Interpolação da solução DG
     print("\n🔎 Interpolando a solução final para visualização...")
@@ -184,58 +179,6 @@ def single_test_validation(PROBLEM) -> None:
     )
 
     return driver
-
-
-def plot_L2_error(error_data) -> None:
-    """
-    Plota a evolução do erro L2 ao longo do tempo para um ou mais campos.
-
-    A função gera um gráfico com o tempo no eixo x e o erro L2 no eixo y,
-    utilizando uma escala logarítmica para melhor visualização de pequenas
-    variações de erro.
-
-    Parâmetros
-    ----------
-    error_data : dict
-        Dicionário contendo os dados do erro. Espera-se a seguinte estrutura:
-        {
-            'time': [t_0, t_1, ...],
-            'L2_error': {
-                'field_name_1': [error_0, error_1, ...],
-                'field_name_2': [error_0, error_1, ...],
-                ...
-            }
-        }
-        Onde 'field_name_1' poderia ser 'Ez', por exemplo.
-
-    Retorna
-    -------
-    None
-        A função exibe um gráfico e não retorna nenhum valor.
-    """
-    time_values = error_data['time']
-    l2_error_dict = error_data['L2_error']
-
-    # 1. Criar a figura e os eixos para o plot
-    # O uso de subplots é uma boa prática para ter mais controle sobre a figura.
-    _, ax = plt.subplots(figsize=(10, 6), dpi=90)
-
-    # 2. Iterar sobre cada campo no dicionário de erros e plotar
-    for field_name, errors in l2_error_dict.items():
-        # Usamos semilogy para que o eixo y fique em escala logarítmica.
-        # Isso é ideal para visualizar ordens de magnitude do erro.
-        ax.semilogy(time_values, errors, label=f'Erro L2 - {field_name}', marker='o', markersize=3, linestyle='-')
-
-    # 3. Configurar os detalhes do gráfico para clareza
-    ax.set_title('Evolução do Erro $L^2$ ao Longo do Tempo', fontsize=16)
-    ax.set_xlabel('Tempo (s)', fontsize=12)
-    ax.set_ylabel('Erro $L^2$ (Escala Log)', fontsize=12)
-    ax.legend()  # Adiciona a legenda (baseada nos 'labels' definidos no plot)
-    ax.grid(True, which='both', linestyle='--', linewidth=0.5) # Adiciona uma grade para facilitar a leitura
-
-    # 4. Ajustar o layout e exibir o gráfico
-    plt.tight_layout()
-    plt.show()
 
 
 def main() -> None:

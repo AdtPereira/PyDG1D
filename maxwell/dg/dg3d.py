@@ -8,7 +8,7 @@ from ..spatialDiscretization import *
 
 
 class Maxwell3D(SpatialDiscretization):
-    def __init__(self, n_order: int, mesh: Mesh3D, fluxType="Upwind"):
+    def __init__(self, n_order: int, mesh: Mesh3D, fluxType="Upwind", pml_design=None):
         assert n_order > 0
         assert mesh.number_of_elements() > 0
 
@@ -40,6 +40,149 @@ class Maxwell3D(SpatialDiscretization):
         self.f_scale = sJ/self.jacobian[self.fmask.ravel('F')]
 
         self.buildMaps()
+
+        # Build PML fields
+        if pml_design is not None:
+            self.sgm_x, self.sgm_y, self.sgm_z = self.upml_sigma_fields(
+                self.x, self.y, self.z, pml_design)
+        else:
+            self.sgm_x = np.zeros_like(self.x)
+            self.sgm_y = np.zeros_like(self.y)
+            self.sgm_z = np.zeros_like(self.z)
+
+    def interpolate_dg_solution(self, uh, resolution=10):
+        """
+        Interpola a solução DG (uh) para uma grade de visualização densa dentro de cada elemento.
+
+        Parâmetros
+        ----------
+        uh : ndarray
+            Vetor da solução numérica com shape (Np, K), onde K é o número
+            de elementos e Np o número de pontos por elemento.
+        resolution : int, optional
+            A ordem da grade de interpolação. Um valor maior gera uma visualização
+            mais suave. O padrão é 10.
+
+        Retorna
+        -------
+        x_interp, y_interp, z_interp : ndarray
+            Arrays achatados com as coordenadas (x, y, z) dos pontos interpolados.
+        uh_interp : ndarray
+            Array achatado com os valores da solução interpolada nesses pontos.
+        """
+        # 1. Gerar uma grade densa de pontos no tetraedro de referência.
+        # Usamos EquiNodes3D para criar pontos uniformemente espaçados em (r,s,t).
+        r_interp, s_interp, t_interp = EquiNodes3D(resolution)
+
+        # 2. Construir a matriz de interpolação.
+        # `V` é a Vandermonde dos nós da solução. `V_interp` é a dos nós de interpolação.
+        V_interp = vandermonde(self.n_order, r_interp, s_interp, t_interp) #
+        invV = np.linalg.inv(self.V) # self.V foi calculado no __init__.
+        interp_matrix = V_interp @ invV
+
+        # 3. Mapear os pontos da grade de interpolação para as coordenadas físicas.
+        # Usamos o método auxiliar definido acima.
+        x_interp, y_interp, z_interp = map_reference_to_physical_nodes(self.mesh, r_interp, s_interp, t_interp)
+
+        # 4. Aplicar a interpolação à solução `uh`.
+        # O operador @ faz a multiplicação de matriz para cada elemento (coluna de uh).
+        uh_interp = interp_matrix @ uh
+
+        # 5. Retornar os arrays achatados, prontos para a plotagem com scatter.
+        # A ordem 'F' (Fortran) é consistente com o resto do seu código.
+        return (
+            x_interp.ravel('F'),
+            y_interp.ravel('F'),
+            z_interp.ravel('F'),
+            uh_interp.ravel('F'),
+        )
+    
+    def compute_L2_error(self, uh, ua):
+        """
+        Calcula o erro global na norma L2 usando errᵗ diag(J) M err para cada elemento.
+
+        Parâmetros
+        ----------
+        sp : DG1D
+            Objeto com a discretização espacial.
+        u_h : ndarray
+            Solução numérica final do método DG (Np x K).
+        ua : ndarray
+            Solução analítica (Np x K).
+
+        Retorno
+        -------
+        float
+            Erro global na norma L2.
+        """
+        M = self.mass
+        K = self.mesh.number_of_elements()
+        err = ua - uh
+        errL2 = np.zeros(K)
+
+        for k in range(K):
+            Jk = np.diag(self.jacobian[:, k])       # (Np x Np)
+            ek = err[:, k][:, np.newaxis]           # (Np x 1)
+            errL2[k] = (ek.T @ Jk @ M @ ek)[0, 0]   # (1 x 1)
+        return np.sqrt(np.sum(errL2))
+
+    def upml_sigma_fields(self, x, y, z, problem):
+        """
+        Avalia os campos σx(x) e σy(y) para as regiões de UPML.
+        Parâmetros:
+        - x, y: arrays de coordenadas onde avaliar os campos.
+        - x_limit, y_limit: limites do domínio físico onde σ = 0.
+        - sigma0_x, sigma0_y: coeficientes máximos de amortecimento.
+        - p: expoente do perfil PML.
+        Retorna:
+        - sigma_x, sigma_y: arrays com os valores ponto a ponto para cada elemento.
+        - dsigma_dx, dsigma_dy: derivadas dos campos σx e σy.
+        """
+        # --- Parâmetros Geométricos domínio ---
+        L = problem['pml']['L']         # Largura da camada da PML
+        Lx = problem['domain']['Lx']    # Dimensão total do domínio na direção x
+        Ly = problem['domain']['Ly']    # Dimensão total do domínio na direção y
+        Lz = problem['domain']['Lz']    # Dimensão total do domínio na direção z
+
+        # --- Parâmetros PML ---
+        x0 = Lx - L                     # semi-lados do retângulo interno - Domínio Físico
+        y0 = Ly - L                     # semi-lados do retângulo interno - Domínio Físico
+        z0 = Lz - L                     # semi-lados do retângulo interno - Domínio Físico
+        p = problem['pml']['pml_order'] # Ordem polinomial do perfil PML
+
+        # σx(x), σy(y) e σz(y)
+        sigma_x = np.zeros_like(x)
+        sigma_y = np.zeros_like(y)
+        sigma_z = np.zeros_like(z)
+
+        # Valor inicial e perfil PML
+        sigma0_x = -np.log(problem['pml']['R'])
+        sigma0_y = sigma0_x
+        sigma0_z = sigma0_x        
+
+        # Verifica se os limites são válidos
+        if x0 <= 0 or y0 <= 0 or z0 <= 0:
+            raise ValueError("Os limites x_limit, y_limit e z_limit devem ser positivos.")
+
+        # σ^x(x)
+        xPos = x >= x0
+        xNeg = x <= -x0
+        sigma_x[xPos] = sigma0_x * (x[xPos] - x0)**p
+        sigma_x[xNeg] = sigma0_x * (x[xNeg] + x0)**p
+
+        # σ^y(y)
+        yPos = y >= y0
+        yNeg = y <= -y0
+        sigma_y[yPos] = sigma0_y * (y[yPos] - y0)**p
+        sigma_y[yNeg] = sigma0_y * (y[yNeg] + y0)**p
+
+        # σ^z(z)
+        zPos = z >= z0
+        zNeg = z <= -z0
+        sigma_z[zPos] = sigma0_z * (z[zPos] - z0)**p
+        sigma_z[zNeg] = sigma0_z * (z[zNeg] + z0)**p
+
+        return sigma_x, sigma_y, sigma_z
 
     def buildMaps(self):
         '''
@@ -157,8 +300,8 @@ class Maxwell3D(SpatialDiscretization):
     def buildEvolutionOperator(self):
         Np = self.number_of_nodes_per_element()
         K = self.mesh.number_of_elements()
-        Nfields = 6  # Ex, Ey, Ez, Hx, Hy, Hz
-        N = Nfields * Np * K # total DOFs
+        Nfields = 12            # Ex, Ey, Ez, Hx, Hy, Hz, Px, Py, Pz, Qx, Qy, Qz
+        N = Nfields * Np * K    # total DOFs
         A = np.zeros((N,N))
 
         for i in range(N):
@@ -168,18 +311,30 @@ class Maxwell3D(SpatialDiscretization):
             field_block = i // (Np * K)
 
             # Set the appropriate field based on the block index
-            if field_block == 0:  # Ex
+            if field_block == 0:        # Ex
                 fields['Ex'][node, elem] = 1.0
-            elif field_block == 1:  # Ey
+            elif field_block == 1:      # Ey
                 fields['Ey'][node, elem] = 1.0
-            elif field_block == 2:  # Ez
+            elif field_block == 2:      # Ez
                 fields['Ez'][node, elem] = 1.0
-            elif field_block == 3:  # Hx
+            elif field_block == 3:      # Hx
                 fields['Hx'][node, elem] = 1.0
-            elif field_block == 4:  # Hy
+            elif field_block == 4:      # Hy
                 fields['Hy'][node, elem] = 1.0
-            elif field_block == 5:  # Hz
+            elif field_block == 5:      # Hz
                 fields['Hz'][node, elem] = 1.0
+            elif field_block == 6:      # Px
+                fields['Px'][node, elem] = 1.0
+            elif field_block == 7:      # Py
+                fields['Py'][node, elem] = 1.0
+            elif field_block == 8:      # Pz
+                fields['Pz'][node, elem] = 1.0
+            elif field_block == 9:      # Qx
+                fields['Qx'][node, elem] = 1.0
+            elif field_block == 10:     # Qy
+                fields['Qy'][node, elem] = 1.0
+            elif field_block == 11:     # Qz
+                fields['Qz'][node, elem] = 1.0
             else:
                 raise ValueError("Invalid field block index.")
             
@@ -193,7 +348,13 @@ class Maxwell3D(SpatialDiscretization):
                 fieldsRHS['Ez'].reshape(Np*K, 1, order='F'), 
                 fieldsRHS['Hx'].reshape(Np*K, 1, order='F'),
                 fieldsRHS['Hy'].reshape(Np*K, 1, order='F'),
-                fieldsRHS['Hz'].reshape(Np*K, 1, order='F')
+                fieldsRHS['Hz'].reshape(Np*K, 1, order='F'),
+                fieldsRHS['Px'].reshape(Np*K, 1, order='F'),
+                fieldsRHS['Py'].reshape(Np*K, 1, order='F'),
+                fieldsRHS['Pz'].reshape(Np*K, 1, order='F'),
+                fieldsRHS['Qx'].reshape(Np*K, 1, order='F'),
+                fieldsRHS['Qy'].reshape(Np*K, 1, order='F'),
+                fieldsRHS['Qz'].reshape(Np*K, 1, order='F'),
             ])
 
             # Fill the operator matrix with the computed values
@@ -202,16 +363,31 @@ class Maxwell3D(SpatialDiscretization):
         return A
 
     def buildFields(self):
+        # Electric fields components
         Ex = np.zeros([self.number_of_nodes_per_element(),
                        self.mesh.number_of_elements()])
         Ey = np.zeros(Ex.shape)
         Ez = np.zeros(Ex.shape)
+        
+        # Magnetic fields components
         Hx = np.zeros(Ex.shape)
         Hy = np.zeros(Ex.shape)
         Hz = np.zeros(Ex.shape)
 
+        # UPML ADE E-fields
+        Px = np.zeros(Ex.shape)
+        Py = np.zeros(Ey.shape)
+        Pz = np.zeros(Ez.shape)
+
+        # UPML ADE H-fields
+        Qx = np.zeros(Hx.shape)
+        Qy = np.zeros(Hy.shape)
+        Qz = np.zeros(Hz.shape)
+
         return {'Hx': Hx, 'Hy': Hy, 'Hz': Hz,
-                'Ex': Ex, 'Ey': Ey, 'Ez': Ez}
+                'Ex': Ex, 'Ey': Ey, 'Ez': Ez,
+                'Px': Px, 'Py': Py, 'Pz': Pz,
+                'Qx': Qx, 'Qy': Qy, 'Qz': Qz}
 
     def computeZeroNormalFlux(self, dEx, dEy, dEz):
         f_Hx_zero = 0
@@ -350,10 +526,17 @@ class Maxwell3D(SpatialDiscretization):
         return dHx, dHy, dHz, dEx, dEy, dEz
 
     def computeRHS(self, fields):
+        # Compute the right-hand side of Maxwell's equations
         Hx, Hy, Hz = fields['Hx'], fields['Hy'], fields['Hz']
         Ex, Ey, Ez = fields['Ex'], fields['Ey'], fields['Ez']
 
-        flux_Hx, flux_Hy, flux_Hz, flux_Ex, flux_Ey, flux_Ez = self.computeFlux(Hx, Hy, Hz, Ex, Ey, Ez)
+        # Compute the right-hand side of ADE equations
+        Px, Py, Pz = fields['Px'], fields['Py'], fields['Pz']
+        Qx, Qy, Qz = fields['Qx'], fields['Qy'], fields['Qz']
+
+        # Compute the RHS for the time evolution
+        flux_Hx, flux_Hy, flux_Hz, flux_Ex, flux_Ey, flux_Ez = self.computeFlux(
+            Hx, Hy, Hz, Ex, Ey, Ez)
 
         # evaluate local spatial derivatives
         curlHx, curlHy, curlHz = Curl3D(
@@ -382,52 +565,37 @@ class Maxwell3D(SpatialDiscretization):
         rhs_Ey = +curlHy + np.matmul(self.lift, self.f_scale * flux_Ey)/2.0
         rhs_Ez = +curlHz + np.matmul(self.lift, self.f_scale * flux_Ez)/2.0
 
+        # -------- Termos extras da formulação PML  ----------
+        # -------- missing material epsilon/mu      ----------
+
+        # UPML E-fields
+        rhs_Ex += - Px + (+self.sgm_x - self.sgm_y - self.sgm_z) * Ex
+        rhs_Ey += - Py + (-self.sgm_x + self.sgm_y - self.sgm_z) * Ey    
+        rhs_Ez += - Pz + (-self.sgm_x - self.sgm_y + self.sgm_z) * Ez
+
+        # UPML H-fields
+        rhs_Hx += - Qx + (+self.sgm_x - self.sgm_y - self.sgm_z) * Hx
+        rhs_Hy += - Qy + (-self.sgm_x + self.sgm_y - self.sgm_z) * Hy
+        rhs_Hz += - Qz + (-self.sgm_x - self.sgm_y + self.sgm_z) * Hz
+
+        # UPML ADE fields
+        sgm_xx = self.sgm_x ** 2
+        sgm_yy = self.sgm_y ** 2
+        sgm_zz = self.sgm_z ** 2
+
+        sgm_xy = self.sgm_x * self.sgm_y
+        sgm_xz = self.sgm_x * self.sgm_z
+        sgm_yz = self.sgm_y * self.sgm_z
+
+        rhs_Px = (sgm_xx - sgm_xy - sgm_xz + sgm_yz) * Ex - self.sgm_x * Px
+        rhs_Py = (sgm_yy - sgm_xy + sgm_xz - sgm_yz) * Ey - self.sgm_y * Py
+        rhs_Pz = (sgm_zz + sgm_xy - sgm_xz - sgm_yz) * Ez - self.sgm_z * Pz
+
+        rhs_Qx = (sgm_xx - sgm_xy - sgm_xz + sgm_yz) * Hx - self.sgm_x * Qx
+        rhs_Qy = (sgm_yy - sgm_xy + sgm_xz - sgm_yz) * Hy - self.sgm_y * Qy
+        rhs_Qz = (sgm_zz + sgm_xy - sgm_xz - sgm_yz) * Hz - self.sgm_z * Qz
+
         return {'Hx': rhs_Hx, 'Hy': rhs_Hy, 'Hz': rhs_Hz,
-                'Ex': rhs_Ex, 'Ey': rhs_Ey, 'Ez': rhs_Ez}
-    
-    def interpolate_dg_solution(self, uh, resolution=10):
-        """
-        Interpola a solução DG (uh) para uma grade de visualização densa dentro de cada elemento.
-
-        Parâmetros
-        ----------
-        uh : ndarray
-            Vetor da solução numérica com shape (Np, K), onde K é o número
-            de elementos e Np o número de pontos por elemento.
-        resolution : int, optional
-            A ordem da grade de interpolação. Um valor maior gera uma visualização
-            mais suave. O padrão é 10.
-
-        Retorna
-        -------
-        x_interp, y_interp, z_interp : ndarray
-            Arrays achatados com as coordenadas (x, y, z) dos pontos interpolados.
-        uh_interp : ndarray
-            Array achatado com os valores da solução interpolada nesses pontos.
-        """
-        # 1. Gerar uma grade densa de pontos no tetraedro de referência.
-        # Usamos EquiNodes3D para criar pontos uniformemente espaçados em (r,s,t).
-        r_interp, s_interp, t_interp = EquiNodes3D(resolution)
-
-        # 2. Construir a matriz de interpolação.
-        # `V` é a Vandermonde dos nós da solução. `V_interp` é a dos nós de interpolação.
-        V_interp = vandermonde(self.n_order, r_interp, s_interp, t_interp) #
-        invV = np.linalg.inv(self.V) # self.V foi calculado no __init__.
-        interp_matrix = V_interp @ invV
-
-        # 3. Mapear os pontos da grade de interpolação para as coordenadas físicas.
-        # Usamos o método auxiliar definido acima.
-        x_interp, y_interp, z_interp = map_reference_to_physical_nodes(self.mesh, r_interp, s_interp, t_interp)
-
-        # 4. Aplicar a interpolação à solução `uh`.
-        # O operador @ faz a multiplicação de matriz para cada elemento (coluna de uh).
-        uh_interp = interp_matrix @ uh
-
-        # 5. Retornar os arrays achatados, prontos para a plotagem com scatter.
-        # A ordem 'F' (Fortran) é consistente com o resto do seu código.
-        return (
-            x_interp.ravel('F'),
-            y_interp.ravel('F'),
-            z_interp.ravel('F'),
-            uh_interp.ravel('F'),
-        )
+                'Ex': rhs_Ex, 'Ey': rhs_Ey, 'Ez': rhs_Ez,
+                'Px': rhs_Px, 'Py': rhs_Py, 'Pz': rhs_Pz,
+                'Qx': rhs_Qx, 'Qy': rhs_Qy, 'Qz': rhs_Qz}

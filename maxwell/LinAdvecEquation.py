@@ -13,7 +13,7 @@ OUTPUTS = (Path(__file__).parent.parent / 'examplesData' / 'outputs').resolve()
 OUTPUTS.mkdir(parents=True, exist_ok=True)
 
 
-class LinAdvecDriver1D:
+class Driver1D:
     """
     Classe para simulação da equação de advecção linear 1D usando
     o método dos elementos descontínuos (Discontinuous Galerkin - DG).

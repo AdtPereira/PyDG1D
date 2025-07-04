@@ -76,7 +76,7 @@ from maxwell.dg.mesh1d import *
 from maxwell.dg.dg1d import *
 from maxwell.integrators.LSERK4 import *
 from maxwell.utils import *
-from maxwell.advec_driver import LinAdvecDriver1D
+from maxwell.LinAdvecEquation import Driver1D
 
 
 def resonant_cavity_field(problem, x, t):
@@ -147,7 +147,7 @@ def single_test_solution(problem) -> None:
         fluxType=problem['flux_type'])
     
     # Initialize the solver
-    LinAdvecDriver1D(problem, sp).run_single_test()    
+    Driver1D(problem, sp).run_single_test()    
 
 
 def run_convergence_simulations(problem: dict, k_list: list):
@@ -187,7 +187,7 @@ def run_convergence_simulations(problem: dict, k_list: list):
                 boundary_label="Periodic"),
             fluxType=problem['flux_type'])
 
-        driver = LinAdvecDriver1D(problem, sp)
+        driver = Driver1D(problem, sp)
         driver.run(FinalTime=problem['tmax'])
 
         # Solução analítica para erro L2
