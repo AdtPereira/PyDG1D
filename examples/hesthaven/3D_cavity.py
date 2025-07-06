@@ -173,8 +173,8 @@ def single_test_validation(PROBLEM) -> None:
 
     rmse_x = rmse(xcurlE, curlx_analytical)
     rmse_y = rmse(ycurlE, curly_analytical)
-    L2x_error = compute_L2_error(sp, xcurlE, curlx_analytical)
-    L2y_error = compute_L2_error(sp, ycurlE, curly_analytical)
+    L2x_error = sp.compute_L2_error(xcurlE, curlx_analytical)
+    L2y_error = sp.compute_L2_error(ycurlE, curly_analytical)
     
     print(f"\n📏 Erro quadrático médio do operador 'Curl3D' (RMSE):")
     print(f"    curl_x  → {rmse_x:.3e}")
@@ -338,7 +338,7 @@ def L2_error_study(PROBLEM):
                 for field_name, analytical_fn in analytical_fields.items():
                     uh = driver[field_name]
                     ua = analytical_fn(sp.x, sp.y, sp.z, t)
-                    l2_error = compute_L2_error(sp, uh, ua)
+                    l2_error = sp.compute_L2_error(uh, ua)
                     error_data['L2_error'][field_name].append(l2_error)
 
                 driver.step()

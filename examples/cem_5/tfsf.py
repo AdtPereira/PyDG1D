@@ -9,7 +9,7 @@ ESTE SCRIPT UTILIZA CAMINHOS ABSOLUTOS E NÃO ALTERA O DIRETÓRIO DE TRABALHO
 EXECUÇÃO:
 cd C:\\git\\PyDG1D
 conda activate pyDG1D
-python examples\\cem_5\\gaussian_transient.py
+python examples\\cem_5\\tfsf.py
 
 ══════════════════════════════════════════════════════════════════════════
 
@@ -79,44 +79,43 @@ from mesher.create_mesh import *
 from mesher.plot_mesh import *
 
 
-problem = {
+PROBLEM = {
     'DIM': 3,
-    'description': 'Teste de convergência do esquema DGTD tridimensional TMz.',
-    'name': 'upml',
+    'description': 'Teste da formulação TF/SF do esquema DGTD tridimensional.',
+    'name': 'tfsf',
     'folder': 'cem_5',
     'dg': {
-        'n_order': 6,               # Ordem de interpolação polinomial
-        'flux_type': 'Centered',    # 'Upwind' or 'Centered'
+        'n_order': 4,               # Ordem de interpolação polinomial
+        'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
         'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
-        'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
-        'wavelength': 1.0,          # Comprimento de onda
-        't_final': 3.0,             # Tempo final da simulação
+        'bc': "SMA",                # Condição de contorno: 'PEC', 'SMA'  or 'Periodic
+        't_final': 8.0,             # Tempo final da simulação
     },
     'domain': {
-        'type': 'cubic',        # Tipo de domínio: 'rectangle' ou 'cubic'
-        'h': 2.0,               # Tamanho máximo do elemento da malha
-        'Lx': 2.0,              # Dimensão total do domínio na direção x
-        'Ly': 2.0,              # Dimensão total do domínio na direção y
-        'Lz': 2.0,              # Dimensão total do domínio na direção z
+        'type': 'cubic',            # Tipo de domínio: 'rectangle' ou 'cubic'
+        'h': 2.0,                   # Tamanho máximo do elemento da malha
+        'Lx': 3.0,                  # Dimensão total do domínio na direção x
+        'Ly': 3.0,                  # Dimensão total do domínio na direção y
+        'Lz': 3.0,                  # Dimensão total do domínio na direção z
     },
     'pml': {
         'type': 'uniaxial', 
-        'L': 1.0,           # Largura da camada da PML
-        'pml_order': 2,     # Ordem polinomial da PML
-        'R': 1E-4           # Coeficiente de reflexão na interface da PML
+        'L': 1.0,                   # Largura da camada da PML
+        'pml_order': 2,             # Ordem polinomial da PML
+        'R': 1E-4                   # Coeficiente de reflexão na interface da PML
     },
     'source': {
         'type': 'gaussian',         # Tipo de fonte: 'gaussian' ou 'derivative'
         'A0': 1.0,                  # Amplitude do pulso gaussiano
-        'sigma_r': 0.5,             # Desvio padrão espacial do pulso gaussiano
+        'sigma_r': 0.25,            # Desvio padrão espacial do pulso gaussiano
         'sigma_t': 1.0,             # Desvio padrão temporal do pulso gaussiano
         'x0': (0.0, 0.0, 0.0),      # Posição x do centro do pulso gaussiano
         't0': 0.0                   # Tempo de pico do pulso gaussiano
-    },
+    }
 }
 
 
-def single_test_validation(problem) -> None:
+def spatial_discretization(problem):
     """
     Testa a solução numérica comparando com a solução analítica.
 
@@ -135,72 +134,98 @@ def single_test_validation(problem) -> None:
     """
     sa = UniaxialPml(problem)
     
-
     # 1. Criar a malha cúbica com dimensão L com Gmsh
     gmsh.initialize()
-    mesh_cubeK96_upml(problem)
+    mesh_cubeK540_tfsf(problem)
     EToV = get_EToV(dim=problem['DIM'], index_based=0)
     VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=problem['DIM']))
     # gmsh.fltk.run()
     gmsh.finalize()
 
-
     # 2. Criar o objeto Mesh3D 
     mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=problem['dg']['bc'])
+    # mesh.plot_mesh(title="mesh_cubeK96.msh", show_vertices=True, alpha=0.15)
     print(f"\nMalha criada com {mesh.number_of_vertices()} vértices e {mesh.number_of_elements()} elementos.")
-
 
     # 3. Definir a discretização espacial usando DG3D
     sp = Maxwell3D(
         n_order=problem['dg']['n_order'],
         mesh=mesh,
         fluxType=problem['dg']['flux_type'],
-        pml_design=problem)
+        pml_design=None)
+    
     print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}, {sp.mesh.number_of_elements()} elementos e {sp.number_of_nodes_per_element()} pontos por elemento.")
 
+    return sa, sp
 
-    # 5. Criar o driver para resolver a equação de Maxwell
+
+def test_with_L2_error(problem) -> None:
+    """
+    Testa a solução numérica comparando com a solução analítica.
+    (Versão corrigida para lidar com a estrutura de dados 2D do DG-FEM)
+    """
+    sa, sp = spatial_discretization(problem)
+
     driver = MaxwellDriver(sp, CFL=problem['dg']['cfl'])
     driver['Ez'][:] = sa.gaussian_pulse_3d(sp.x, sp.y, sp.z, t=0.0)
 
-
-    # Preparar dados
     analytical_fields = {'Ez': sa.gaussian_pulse_3d}
     error_data = {'time': [], 'L2_error': {key: [] for key in analytical_fields}}
+    
+    # --- INÍCIO DA MODIFICAÇÃO CORRIGIDA DA SONDA ---    
+    probe = (1.0, 0.0, 0.0)
+    
+    # MUDANÇA 1: A estrutura de sp.x é (nós_por_elemento, num_elementos). 
+    # O cálculo da distância retorna um array com a mesma forma.
+    distances = np.sqrt((sp.x - probe[0])**2 + (sp.y - probe[1])**2 + (sp.z - probe[2])**2)
+    
+    # MUDANÇA 2: Encontramos o índice "plano" do nó mais próximo.
+    flat_probe_index = np.argmin(distances)
+    
+    # MUDANÇA 3: Usamos unravel_index para converter o índice plano em índices 2D 
+    # (índice_do_nó_local, índice_do_elemento) que correspondem à forma de sp.x.
+    node_idx, elem_idx = np.unravel_index(flat_probe_index, sp.x.shape)
+    
+    # MUDANÇA 4: Inicializamos a estrutura de dados da sonda
+    probe_data = {'time': [], 'Ez_probe': []}
+    print(f"\n🔎 Sonda pontual inserida no elemento {elem_idx}, nó local {node_idx}.")
+    print(f"Coordenadas do ponto da sonda: {probe}")
+    print(f"Coordenadas do nó mais próximo: ({sp.x[node_idx, elem_idx]:.3f}, {sp.y[node_idx, elem_idx]:.3f}, {sp.z[node_idx, elem_idx]:.3f})")
+
+    # --- FIM DA MODIFICAÇÃO CORRIGIDA DA SONDA ---
     t_dg = 0.0
+    N_steps = int(sa.t_final / driver.dt)
+    print(f"\n🚀 Marchando no tempo com passo dt = {driver.dt:.3f}s...")
+    print(f"⏳ Tempo final: {sa.t_final:.3f}s.")
+    print(f"⏳ Número de passos de tempo: {N_steps}.")
 
-
-    # Loop no tempo
-    for _ in range(int(sa.t_final / driver.dt)):
+    for _ in range(N_steps):
         error_data['time'].append(t_dg)
-
         for field_name, analytical_fn in analytical_fields.items():
             uh = driver[field_name]
             ua = analytical_fn(sp.x, sp.y, sp.z, t_dg)
             l2_error = sp.compute_L2_error(uh, ua)
-            error_data['L2_error'][field_name].append(l2_error)
-
+            error_data['L2_error'][field_name].append(l2_error)            
+        
+        probe_data['time'].append(t_dg)        
+        probe_value = driver['Ez'][node_idx, elem_idx]
+        probe_data['Ez_probe'].append(probe_value)        
         driver.step()
         t_dg += driver.dt
-    
-    # 4. Plotar resultados
-    sa.plot_L2_error(error_data)
 
-
-    # 6. Interpolação da solução DG
-    # print("\n🔎 Interpolando a solução final para visualização...")
-    # xi, yi, zi, ezh_i = sp.interpolate_dg_solution(driver['Ez'], resolution=12)
-    # # Plot da solução NUMÉRICA
-    # sa.plot_field(xi, yi, zi, field_data=ezh_i, title=f"DG-FEM @ t={problem['dg']['t_final']:.1f}s")
+    plt.figure(figsize=(10, 6))
+    plt.plot(probe_data['time'], probe_data['Ez_probe'], label=f'Sonda em {probe}')
+    plt.title("$Ez(x,y,z,t)$")
+    plt.xlabel('Tempo (s)')
+    plt.ylabel('Amplitude (V/m)')
+    plt.grid(True)
+    plt.legend()   
 
 
 def main() -> None:
     """Função principal para execução do script."""
     clear_terminal()
-
-    # Test 0 - Validação de um único teste considerando o código MATLAB
-    print("\n🔎 Teste de validação com código MATLAB...")
-    single_test_validation(problem)
+    test_with_L2_error(PROBLEM)
 
 
 if __name__ == '__main__':

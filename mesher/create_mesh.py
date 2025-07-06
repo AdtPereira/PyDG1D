@@ -253,7 +253,10 @@ def mesh_cubeK6():
     # Obtém as "entidades de fronteira" (as 6 faces) do nosso volume.
     surfaces = gmsh.model.getBoundary([(3, box)], combined=False, oriented=False)
     
-    for s_tag in [s[1] for s in surfaces]:
+    # Extrai apenas as tags numéricas das superfícies para uso posterior
+    surface_tags = [s[1] for s in surfaces]
+
+    for s_tag in surface_tags:
         # Para cada face, define que ela será transfinita.
         gmsh.model.mesh.setTransfiniteSurface(s_tag)
         
@@ -272,7 +275,12 @@ def mesh_cubeK6():
     # 4. Força a subdivisão dos hexaedros em tetraedros
     gmsh.option.setNumber("Mesh.SubdivisionAlgorithm", 1)
 
-    # 5. Gera a malha 3D
+    # 5. Adiciona um grupo físico para as superfícies de contorno
+    # A função addPhysicalGroup recebe a dimensão (2 para superfícies),
+    # uma lista com as tags das entidades e uma tag para o grupo físico.
+    gmsh.model.addPhysicalGroup(2, surface_tags, tag=201, name="BoundarySurfaces")
+
+    # 6. Gera a malha 3D
     gmsh.model.mesh.generate(3)
 
 
@@ -296,7 +304,7 @@ def mesh_cubeK96_upml(problem):
     Lx = problem['domain']['Lx']    # Dimensão total do domínio na direção x
     x0 = Lx - L                     # semi-lados do retângulo interno - Domínio Físico
 
-    gmsh.model.add("cubeK168_upml")
+    gmsh.model.add("cubeK96_upml")
     factory = gmsh.model.occ
 
     # --- Criação da Geometria ---
@@ -317,6 +325,48 @@ def mesh_cubeK96_upml(problem):
     # Atribui cada volume a um grupo físico com um nome e uma tag numérica única.
     # A dimensão é 3 para volumes.
     gmsh.model.addPhysicalGroup(3, [tfzTag], tag=301, name="TFZ")
+    gmsh.model.addPhysicalGroup(3, [pmlTag], tag=303, name="PML")
+
+    # --- Malha ---
+    gmsh.option.setNumber("Mesh.MeshSizeMax", h)
+    gmsh.option.setNumber("Mesh.MeshSizeMin", h)
+    gmsh.model.mesh.generate(3)
+
+
+def mesh_cubeK540_tfsf(problem):
+    # --- Parâmetros Geométricos e de Malha ---
+    L = problem['pml']['L']         # Largura da camada da PML
+    h = problem['domain']['h']      # Tamanho máximo do elemento da malha # h = 2.0
+    Lx = problem['domain']['Lx']    # Dimensão total do domínio na direção x
+    xa = Lx - L                     # semi-lados do retângulo (intermediário) SFZ
+    x0 = xa - L                     # semi-lados do retângulo (interno) TFS
+
+    gmsh.model.add("cubeK168_tfsf")
+    factory = gmsh.model.occ
+
+    # --- Criação da Geometria ---
+    tfz = factory.addBox(-x0, -x0, -x0, 2*x0, 2*x0, 2*x0)
+    sfz = factory.addBox(-xa, -xa, -xa, 2*xa, 2*xa, 2*xa)
+    pml = factory.addBox(-Lx, -Lx, -Lx, 2*Lx, 2*Lx, 2*Lx)
+
+    # Realiza o corte do volume PML pelo volume SFZ
+    pml_domain, _ = factory.cut([(3, pml)], [(3, sfz)], removeTool=False)
+    sfz_domain, _ = factory.cut([(3, sfz)], [(3, tfz)], removeTool=False)
+
+    factory.synchronize()
+
+    # --- Definição dos Grupos Físicos ---
+    # Extrai a tag numérica de cada volume criado.
+    # O resultado das operações de corte pode ter mais de um volume, mas aqui sabemos que é apenas um.
+    pmlTag = pml_domain[0][1]
+    sfzTag = sfz_domain[0][1]
+    # A tag do domínio total-field é a original, que geralmente é 1
+    tfzTag = tfz
+
+    # Atribui cada volume a um grupo físico com um nome e uma tag numérica única.
+    # A dimensão é 3 para volumes.
+    gmsh.model.addPhysicalGroup(3, [tfzTag], tag=301, name="TFZ")
+    gmsh.model.addPhysicalGroup(3, [sfzTag], tag=302, name="SFZ")
     gmsh.model.addPhysicalGroup(3, [pmlTag], tag=303, name="PML")
 
     # --- Malha ---

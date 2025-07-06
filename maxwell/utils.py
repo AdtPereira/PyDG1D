@@ -11,8 +11,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import json
+from typing import List, Optional
 from scipy.io import loadmat
 
 # Configurações do matplotlib
@@ -24,10 +24,73 @@ def clear_terminal() -> None:
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
-def format_matrix(matrix: np.ndarray, title: str = "", float_fmt: str = "%.4f") -> str:
+def print_3d_matrices(Matriz3D: np.ndarray, elements: Optional[List[int]] = None, title: str = "") -> None:
     """
-    Retorna uma string formatada da matriz com cabeçalho e valores bonitos.
-    Pode ser usada para logs.
+    Imprime fatias de vmapM_3D usando DataFrames do pandas para uma exibição elegante.
+
+    Permite a seleção de quais elementos (fatias ao longo do último eixo) imprimir.
+
+    Argumentos:
+        vmapM_3D (np.ndarray): A matriz com shape (Nfp, Nfaces, K).
+        title (str): O título a ser exibido no cabeçalho.
+        elementos_a_plotar (Optional[List[int]], opcional): 
+            Uma lista de índices (k) dos elementos a serem plotados.
+            Se for None, todos os elementos (de 0 a K-1) serão plotados. 
+            O padrão é None.
+    """
+    if Matriz3D.ndim != 3:
+        print("Erro: A matriz não é 3D.")
+        return
+        
+    Nfp, Nfaces, K = Matriz3D.shape
+
+    # Determina quais elementos imprimir
+    if elements is None:
+        idx_to_print = range(K)  # Imprime todos os elementos
+    elif all(isinstance(el, int) for el in elements):
+        idx_to_print = elements
+    else:
+        print("Erro: 'elements' deve ser uma lista de índices ou None.")
+        return
+
+    print("\n" + "="*40)
+    print(f"       {title} ")
+    print("="*40)
+
+    printed_elements = 0
+    for k in idx_to_print:
+        # Verificação de segurança: garante que o índice está dentro dos limites
+        if not 0 <= k < K:
+            print(f"\nAviso: O índice de elemento {k} está fora do intervalo [0, {K-1}] e será ignorado.")
+            continue
+
+        print(f"\n--- Elemento {k} ---")
+
+        slice_k = Matriz3D[:, :, k]
+
+        # Cria um DataFrame do pandas a partir da fatia 2D
+        df = pd.DataFrame(slice_k)
+
+        # Adiciona rótulos para as colunas e o índice (linhas)
+        df.columns = [f'Face {i}' for i in range(Nfaces)]
+        df.index.name = "Face Node"
+
+        print(df)
+        printed_elements += 1
+
+    if printed_elements == 0 and elements is not None:
+        print("\nNenhum elemento válido foi encontrado para impressão.")
+
+
+def format_matrix(
+    matrix: np.ndarray, 
+    title: str = "", 
+    elements: Optional[List[int]] = None,
+    float_fmt: str = "%.4f"
+) -> str:
+    """
+    Retorna uma string formatada da matriz com cabeçalho e valores.
+    Permite a seleção de quais linhas da matriz formatar.
 
     Parâmetros
     ----------
@@ -36,17 +99,57 @@ def format_matrix(matrix: np.ndarray, title: str = "", float_fmt: str = "%.4f") 
     title : str
         Título da matriz.
     float_fmt : str
-        Formato dos valores.
+        Formato dos valores de ponto flutuante.
+    linhas_a_formatar : Optional[List[int]], opcional
+        Uma lista de índices das linhas a serem incluídas na formatação.
+        Se for None, todas as linhas da matriz serão usadas. O padrão é None.
 
     Retorno
     -------
     str
         String formatada.
     """
+    if matrix.ndim != 2:
+        return f"\n{title}\n" + "-" * len(title) + "\nErro: A matriz de entrada não é 2D."
+
+    num_rows = matrix.shape[0]
+    matriz_para_df = matrix
+
+    if elements is not None:
+        # Filtra os índices para garantir que estão dentro dos limites da matriz
+        indices_validos = [i for i in elements if 0 <= i < num_rows]
+        
+        # Se após a filtragem não sobrar nenhum índice válido, retorna uma mensagem
+        if not indices_validos:
+            return f"\n{title}\n" + "-" * len(title) + "\nNenhuma linha válida foi selecionada para formatação."
+            
+        # Seleciona apenas as linhas válidas da matriz original usando a indexação do NumPy
+        matriz_para_df = matrix[indices_validos, :]
+
+    # Cria o DataFrame a partir da matriz (completa ou fatiada)
+    if title == "EToV":
+        columns = [f"Vertex {i}" for i in range(matrix.shape[1])]
+    elif title == "EToE" or title == "EToF":
+        columns = [f"Face {i}" for i in range(matrix.shape[1])]
+    else:
+        # Para outros títulos, usa D1, D2, ..., Dn
+        columns = [f"D{i}" for i in range(matrix.shape[1])]
+
+        
     df = pd.DataFrame(
-        matrix, columns=[f"D{i+1}" for i in range(matrix.shape[1])])
-    matrix_str = df.to_string(index=False, float_format=float_fmt)
-    return f"\n{title}\n" + "-" * len(title) + f"\n{matrix_str}"
+        matriz_para_df, columns=columns, index=[f"t{i}" for i in indices_validos]
+    )
+    
+    # Formata o DataFrame como string
+    matrix_str = df.to_string(index=True, float_format=float_fmt) # Mudei para index=True para ver os índices originais
+    
+    # Monta a string final com o título
+    header = f"\n{title} " + f"(dim: {matrix.shape})\n" + "-" * 3*len(title)
+
+    # Imprimir resultado
+    print(f"{header}\n{matrix_str}")
+
+    return f"{header}\n{matrix_str}"
 
 
 def compare_with_matlab(uh_py, mat_path, mat_var='u'):
@@ -108,36 +211,6 @@ def extract_webdigitized_data(json_path: str) -> tuple[np.ndarray, np.ndarray]:
     x = np.array([pt['value'][0] for pt in data_sorted])
     y = np.array([pt['value'][1] for pt in data_sorted])
     return x, y
-
-
-# def compute_L2_error(sp, uh, ua):
-#     """
-#     Calcula o erro global na norma L2 usando errᵗ diag(J) M err para cada elemento.
-
-#     Parâmetros
-#     ----------
-#     sp : DG1D
-#         Objeto com a discretização espacial.
-#     u_h : ndarray
-#         Solução numérica final do método DG (Np x K).
-#     ua : ndarray
-#         Solução analítica (Np x K).
-
-#     Retorno
-#     -------
-#     float
-#         Erro global na norma L2.
-#     """
-#     err = ua - uh
-#     M = sp.mass 
-#     K = sp.mesh.number_of_elements()
-#     errL2_local = np.zeros(K)
-
-#     for k in range(K):
-#         Jk = np.diag(sp.jacobian[:, k])           # (Np x Np)
-#         ek = err[:, k][:, np.newaxis]             # (Np x 1)
-#         errL2_local[k] = (ek.T @ Jk @ M @ ek)[0, 0]
-#     return np.sqrt(np.sum(errL2_local))
 
 
 def L2_error_E_field(sp, driver, analytical_E, n_steps):

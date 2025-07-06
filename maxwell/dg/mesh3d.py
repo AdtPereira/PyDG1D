@@ -16,6 +16,13 @@ class Mesh3D:
         self.EToV = EToV        
         self.boundary_label = boundary_label
 
+        # Vetor que mapeia cada elemento (índice) a uma tag de grupo (valor)
+        self.EToG = np.zeros(self.number_of_elements(), dtype=int)
+
+        # Dicionário auxiliar para armazenar nomes dos grupos
+        self.group_names = {0: 'Default'}
+
+
     def number_of_vertices(self):
         return self.vx.shape[0]
 
@@ -84,6 +91,58 @@ class Mesh3D:
 
         return EToE, EToF
 
+
+    def get_elements_by_group(self, group_tag):
+        """
+        Retorna os índices de todos os elementos que pertencem a um dado grupo.
+        """
+        # np.where retorna uma tupla; pegamos o primeiro elemento
+        return np.where(self.EToG == group_tag)[0]
+
+
+    def box_physical_group(self, group_tag, group_name, box_dims, center=(0, 0, 0)):
+        """
+        Atribui uma nova tag de grupo aos elementos contidos em uma caixa.
+        Modifica o vetor self.EtoG diretamente.
+        """
+        if group_tag == 0:
+            print("Erro: A tag 0 é reservada para o grupo 'Default'. Use outra tag.")
+            return np.array([], dtype=int)
+            
+        print(f"Atribuindo grupo '{group_name}' (Tag: {group_tag})...")
+        half_dims = np.array(box_dims) / 2.0
+        min_coords = np.array(center) - half_dims
+        max_coords = np.array(center) + half_dims
+        
+        elements_to_assign = []
+        for k in range(self.number_of_elements()):
+            vert_indices = self.EToV[k, :]
+            v_coords_x = self.vx[vert_indices]
+            v_coords_y = self.vy[vert_indices]
+            v_coords_z = self.vz[vert_indices]
+
+            all_vertices_in_box = (
+                np.all((v_coords_x >= min_coords[0]) & (v_coords_x <= max_coords[0])) and
+                np.all((v_coords_y >= min_coords[1]) & (v_coords_y <= max_coords[1])) and
+                np.all((v_coords_z >= min_coords[2]) & (v_coords_z <= max_coords[2]))
+            )
+
+            if all_vertices_in_box:
+                elements_to_assign.append(k)
+
+        # Converte para array para indexação avançada
+        elements_to_assign = np.array(elements_to_assign, dtype=int)
+        
+        if elements_to_assign.size > 0:
+            # Atribui a nova tag a todos os elementos encontrados de uma vez
+            self.EToG[elements_to_assign] = group_tag
+        
+        # Armazena o nome do novo grupo
+        self.group_names[group_tag] = group_name
+        
+        print(f"-> {len(elements_to_assign)} elementos foram atribuídos à tag {group_tag}.")
+        return elements_to_assign
+    
 
     def plot_mesh(self, title="Malha 3D", show_vertices=False, alpha=0.25):
         """

@@ -1,8 +1,6 @@
 import os
 import gmsh
-
 from mesher.read_mesh import *
-from mesher.create_mesh import mesh_cubeK6    
 
 if __name__ == "__main__":
     # Clear terminal
@@ -13,7 +11,45 @@ if __name__ == "__main__":
     gmsh.initialize()
 
     # 2. Define o modelo
-    mesh_cubeK6()
+    gmsh.model.add("cubeK6")
+
+    # 1. Cria o cubo da mesma forma que antes
+    box = gmsh.model.occ.addBox(0, 0, 0, 1, 1, 1)
+    gmsh.model.occ.synchronize()
+
+    # 2. Força uma malha estruturada (Transfinita)    
+    # Obtém as "entidades de fronteira" (as 6 faces) do nosso volume.
+    surfaces = gmsh.model.getBoundary([(3, box)], combined=False, oriented=False)
+    
+    # Extrai apenas as tags numéricas das superfícies para uso posterior
+    surface_tags = [s[1] for s in surfaces]
+
+    for s_tag in surface_tags:
+        # Para cada face, define que ela será transfinita.
+        gmsh.model.mesh.setTransfiniteSurface(s_tag)
+        
+        # Pega as arestas (curves) da face atual, também com 'oriented=False'.
+        curves = gmsh.model.getBoundary([(2, s_tag)], combined=False, oriented=False)
+        for c_tag in [c[1] for c in curves]:
+            # Define que cada aresta terá 2 pontos (os pontos inicial e final)
+            gmsh.model.mesh.setTransfiniteCurve(c_tag, 2)
+            
+    # Define o volume como transfinito
+    gmsh.model.mesh.setTransfiniteVolume(box)
+    
+    # 3. Força a recombinação para criar hexaedros primeiro
+    gmsh.model.mesh.setRecombine(3, box)
+    
+    # 4. Força a subdivisão dos hexaedros em tetraedros
+    gmsh.option.setNumber("Mesh.SubdivisionAlgorithm", 1)
+
+    # 5. Adiciona um grupo físico para as superfícies de contorno
+    # A função addPhysicalGroup recebe a dimensão (2 para superfícies),
+    # uma lista com as tags das entidades e uma tag para o grupo físico.
+    gmsh.model.addPhysicalGroup(2, surface_tags, tag=201, name="BoundarySurfaces")
+
+    # 6. Gera a malha 3D
+    gmsh.model.mesh.generate(3)
 
     # 3, Imprime informações da malha
     basic_info(dim=DIM)
