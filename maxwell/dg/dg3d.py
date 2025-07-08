@@ -8,7 +8,7 @@ from ..spatialDiscretization import *
 
 
 class Maxwell3D(SpatialDiscretization):
-    def __init__(self, n_order: int, mesh: Mesh3D, fluxType="Upwind", pml_design=None):
+    def __init__(self, n_order: int, mesh: Mesh3D, fluxType="Upwind"):
         assert n_order > 0
         assert mesh.number_of_elements() > 0
 
@@ -39,19 +39,34 @@ class Maxwell3D(SpatialDiscretization):
         self.nx, self.ny, self.nz, sJ = normals(self.x, self.y, self.z, self.Dr, self.Ds, self.Dt, n_order)
         self.f_scale = sJ/self.jacobian[self.fmask.ravel('F')]
 
-        # Dicionário para armazenar os mapas de nós nas interfaces entre grupos físicos
-        self.interface_maps = {}
+        # Atributo para armazenar a fonte de excitação
+        self.incident_wave_function = None
+        self.current_corrections = {}
 
+        # Dicionário para armazenar os mapas de nós nas interfaces entre grupos físicos
         self.buildMaps()
 
         # Build PML fields
-        if pml_design is not None:
-            self.sgm_x, self.sgm_y, self.sgm_z = self.upml_sigma_fields(
-                self.x, self.y, self.z, pml_design)
-        else:
-            self.sgm_x = np.zeros_like(self.x)
-            self.sgm_y = np.zeros_like(self.y)
-            self.sgm_z = np.zeros_like(self.z)
+        self.sgm_x = np.zeros_like(self.x)
+        self.sgm_y = np.zeros_like(self.y)
+        self.sgm_z = np.zeros_like(self.z)
+
+    def set_current_source_corrections(self, corrections):
+        """
+        Armazena os campos da fonte calculados para o passo de tempo atual.
+        """
+        self.current_corrections = corrections
+
+    def set_incident_wave_function(self, function_handle):
+        """
+        Armazena a função (method handle) que será usada para calcular a onda incidente.
+        
+        Parâmetros
+        ----------
+        function_handle : callable
+            Uma função ou método que aceita (x, y, z, t) e retorna 6 componentes de campo.
+        """
+        self.incident_wave_function = function_handle
 
     def interpolate_dg_solution(self, uh, resolution=10):
         """
@@ -142,16 +157,16 @@ class Maxwell3D(SpatialDiscretization):
         - dsigma_dx, dsigma_dy: derivadas dos campos σx e σy.
         """
         # --- Parâmetros Geométricos domínio ---
-        L = problem['pml']['L']         # Largura da camada da PML
         Lx = problem['domain']['Lx']    # Dimensão total do domínio na direção x
         Ly = problem['domain']['Ly']    # Dimensão total do domínio na direção y
         Lz = problem['domain']['Lz']    # Dimensão total do domínio na direção z
+        p = problem['pml']['pml_order'] # Ordem polinomial do perfil PML
+        L = problem['pml']['L']         # Largura da camada da PML
 
         # --- Parâmetros PML ---
-        x0 = Lx - L                     # semi-lados do retângulo interno - Domínio Físico
-        y0 = Ly - L                     # semi-lados do retângulo interno - Domínio Físico
-        z0 = Lz - L                     # semi-lados do retângulo interno - Domínio Físico
-        p = problem['pml']['pml_order'] # Ordem polinomial do perfil PML
+        x0 = Lx - L                     # Início do perfil PML na direção x
+        y0 = Ly - L                     # Início do perfil PML na direção y
+        z0 = Lz - L                     # Início do perfil PML na direção z
 
         # σx(x), σy(y) e σz(y)
         sigma_x = np.zeros_like(x)
@@ -187,64 +202,10 @@ class Maxwell3D(SpatialDiscretization):
 
         return sigma_x, sigma_y, sigma_z
 
-    # def buildMaps(self):
-    #     '''
-    #     function [vmapM, vmapP, vmapB, mapB] = BuildMaps3D
-    #     % function [vmapM, vmapP, vmapB, mapB] = BuildMaps3D
-    #     % Purpose: Connectivity and boundary tables for nodes given
-    #     %           in the K#of elements, each with N+1 degrees of freedom.
-    #     '''
-    #     K = self.mesh.number_of_elements()
-    #     Np = self.number_of_nodes_per_element()
-    #     Nfaces = self.n_faces
-    #     Nfp = self.n_fp
-
-    #     # number volume nodes consecutively
-    #     self.node_ids = np.reshape(np.arange(K*Np), [Np, K], 'F')
-    #     vmapM = np.full([Nfp, Nfaces, K], 0)
-    #     vmapP = np.full([Nfp, Nfaces, K], 0)
-
-    #     # find index of face nodes with respect to volume node ordering
-    #     for k1 in range(K):
-    #         for f1 in range(Nfaces):
-    #             vmapM[:, f1, k1] = self.node_ids[self.fmask[:, f1], k1]
-
-    #     tmp = np.ones(Nfp)
-    #     for k1 in range(K):
-    #         for f1 in range(Nfaces):
-    #             # find neighbor
-    #             k2 = self.EToE[k1, f1]
-    #             f2 = self.EToF[k1, f1]
-
-    #             # find volume node numbers of left and right nodes
-    #             vidM = vmapM[:, f1, k1]
-    #             vidP = vmapM[:, f2, k2]
-                
-    #             xM = np.outer(self.x.ravel('F')[vidM], tmp)
-    #             yM = np.outer(self.y.ravel('F')[vidM], tmp)
-    #             zM = np.outer(self.z.ravel('F')[vidM], tmp)
-                
-    #             xP = np.outer(self.x.ravel('F')[vidP], tmp)
-    #             yP = np.outer(self.y.ravel('F')[vidP], tmp)
-    #             zP = np.outer(self.z.ravel('F')[vidP], tmp)
-
-    #             # Compute distance matrix
-    #             dist2 = (xM - xP.T)**2 + (yM - yP.T)**2 + (zM - zP.T)**2
-
-    #             idM, idP = np.where(dist2 <= NODETOL)
-    #             vmapP[idM, f1, k1] = vidP[idP]
-
-    #     self.vmapM = vmapM.ravel('F')
-    #     self.vmapP = vmapP.ravel('F')
-    #     self.vmapB = self.vmapM[self.vmapP == self.vmapM]
-    #     self.mapB = np.where(self.vmapP == self.vmapM)[0]
-
     def buildMaps(self):
         '''
-        function [vmapM, vmapP, vmapB, mapB] = BuildMaps3D
-        % function [vmapM, vmapP, vmapB, mapB] = BuildMaps3D
-        % Purpose: Connectivity and boundary tables for nodes given
-        %           in the K#of elements, each with N+1 degrees of freedom.
+        Purpose: Build connectivity and boundary maps, and identify interface
+                nodes and their indices between different physical groups.
         '''
         K = self.mesh.number_of_elements()
         Np = self.number_of_nodes_per_element()
@@ -255,11 +216,13 @@ class Maxwell3D(SpatialDiscretization):
         self.node_ids = np.reshape(np.arange(K*Np), [Np, K], 'F')
         vmapM = np.full([Nfp, Nfaces, K], 0)
         vmapP = np.full([Nfp, Nfaces, K], 0)
+        # vmapI é agora um mapa de conectividade completo, com a mesma dimensão que os outros.
+        vmapI = np.full([Nfp, Nfaces, K], 0, dtype=int)
 
-        # Dicionário temporário para construir listas de nós de interface
+        # Dicionário temporário para construir listas de nós de interface por pares de grupos
         tmp_interface_maps = {}
 
-        # find index of face nodes with respect to volume node ordering
+        # Encontra o índice dos nós da face em relação à ordem dos nós de volume
         for k1 in range(K):
             for f1 in range(Nfaces):
                 vmapM[:, f1, k1] = self.node_ids[self.fmask[:, f1], k1]
@@ -267,15 +230,15 @@ class Maxwell3D(SpatialDiscretization):
         tmp = np.ones(Nfp)
         for k1 in range(K):
             for f1 in range(Nfaces):
-                # find neighbor
+                # Encontra o vizinho
                 k2 = self.EToE[k1, f1]
                 f2 = self.EToF[k1, f1]
 
-                # find volume node numbers of left and right nodes
+                # Encontra os números dos nós de volume dos nós esquerdo e direito
                 vidM = vmapM[:, f1, k1]
                 vidP = vmapM[:, f2, k2]
                 
-                # --- LÓGICA DE MATCHING DE NÓS (EXISTENTE) ---
+                # Lógica de correspondência de nós para popular vmapP
                 xM = np.outer(self.x.ravel('F')[vidM], tmp)
                 yM = np.outer(self.y.ravel('F')[vidM], tmp)
                 zM = np.outer(self.z.ravel('F')[vidM], tmp)
@@ -284,110 +247,163 @@ class Maxwell3D(SpatialDiscretization):
                 yP = np.outer(self.y.ravel('F')[vidP], tmp)
                 zP = np.outer(self.z.ravel('F')[vidP], tmp)
 
-                # Compute distance matrix
                 dist2 = (xM - xP.T)**2 + (yM - yP.T)**2 + (zM - zP.T)**2
-
                 idM, idP = np.where(dist2 <= NODETOL)
                 vmapP[idM, f1, k1] = vidP[idP]
 
-                # --- MAPEAMENTO DE INTERFACES DE GRUPOS FÍSICOS ---
-                # Verifica uma face interna (NÃO de fronteira)
-                if k1 != k2:
-                    tagM = self.mesh.EToG[k1] # Tag do elemento k1
-                    tagP = self.mesh.EToG[k2] # Tag do elemento k2
+                # --- NOVA LÓGICA PARA DEFINIR vmapI ---
+                tagM = self.mesh.EToG[k1]
+                tagP = self.mesh.EToG[k2]
+                
+                if tagM == tagP:
+                    # Se os elementos estão na mesma região, vmapI é idêntico a vmapP.
+                    # Isso cobre faces internas e também fronteiras de domínio (onde vmapP == vmapM).
+                    vmapI[:, f1, k1] = vmapP[:, f1, k1]
+                else: # Interface entre grupos físicos diferentes
+                    # Se é uma interface física, vmapI é idêntico a vmapM.
+                    vmapI[:, f1, k1] = vmapM[:, f1, k1]
 
-                    # Se os grupos físicos são diferentes, então é INTERFACE
-                    if tagM != tagP:
-                        interface_key = (tagM, tagP)
-                        tmp_interface_maps.setdefault(interface_key, {'vmapM': [], 'vmapP': []})
-
-                        # 1. Cria um array para os nós "Plus" que será reordenado
-                        vidP_ordered = np.zeros_like(vidM)
-                        
-                        # 2. Usa os índices `idM` e `idP` para colocar os nós de `vidP`
-                        #    na ordem correta que corresponde a `vidM`.
-                        vidP_ordered[idM] = vidP[idP]
-
-                        # 3. Adiciona os nós à lista, garantindo a ordem correta.
-                        #    'vmapM' sempre usa a lista original e ordenada da face.
-                        tmp_interface_maps[interface_key]['vmapM'].extend(vidM)
-                        #    'vmapP' usa a lista que acabamos de reordenar.
-                        tmp_interface_maps[interface_key]['vmapP'].extend(vidP_ordered)
-        
-        # 1. Achata os mapas 3D (Nfp, Nfaces, K) para vetores 1D para uso eficiente
+        # Achata os mapas 3D para vetores 1D para uso eficiente
         self.vmapM = vmapM.ravel('F')
         self.vmapP = vmapP.ravel('F')
+        self.vmapI = vmapI.ravel('F')
 
-        # 2. Identifica os nós na fronteira do domínio.
-        #    A condição (vmapP == vmapM) é verdadeira onde um nó é seu próprio vizinho,
-        #    o que, por construção, define uma face de fronteira do domínio.
+        # Identifica os nós de fronteira de domínio 
+        # Uma fronteira é onde o vizinho é ele mesmo, logo vmapP == vmapM.
         boundary_mask = (self.vmapP == self.vmapM)
-
-        # 3. Cria mapB: um array com os ÍNDICES (as posições) dos nós de fronteira
-        #    dentro dos vetores globais vmapM e vmapP.
+        self.mapB = np.where(boundary_mask)[0]
         self.vmapB = self.vmapM[boundary_mask]
 
-        # 4. Cria vmapB: um array com os IDs GLOBAIS dos nós de fronteira.
-        #    Isso é feito usando os índices de mapB para buscar os valores correspondentes em vmapM
-        self.mapB = np.where(boundary_mask)[0]
+        # 1. Criar uma máscara booleana para identificar as interfaces.
+        # A máscara será 'True' onde vmapP e vmapI são diferentes.
+        is_interface_face = self.vmapP != self.vmapI
 
-        # Converte o dicionário de interfaces em um formato mais acessível
-        for key, maps in tmp_interface_maps.items():
-            self.interface_maps[key] = {
-                'vmapM': np.array(maps['vmapM'], dtype=int),
-                'vmapP': np.array(maps['vmapP'], dtype=int)
-            }
+        # vmapIM recebe os IDs dos nós do lado interno ('Minus') da interface.
+        # Estes valores são extraídos de vmapM onde a máscara é verdadeira.
+        self.vmapIM = self.vmapM[is_interface_face]
 
+        # vmapIP recebe os IDs dos nós do lado externo ('Plus') da interface.
+        # Estes valores são extraídos de vmapP onde a máscara é verdadeira.
+        self.vmapIP = self.vmapP[is_interface_face]
 
-    def buildInterfaceMaps(self, group_id_1, group_id_2):
+        # 1. Obter os índices onde a condição de interface (vmapP != vmapI) é verdadeira.
+        # A função np.where() retorna uma tupla de arrays; pegamos o primeiro elemento [0].
+        self.mapI = np.where(is_interface_face)[0]
+    
+    def buildGroupInterfaceMaps(self, id_A, id_B):
         """
-        Extrai os mapas de uma interface específica e cria atributos dedicados
-        para os nós (vmapI) e seus índices no mapa global (mapI).
+        Filtra os mapas de interface globais (vmapIM, vmapIP) para criar
+        mapas de valores pareados para cada lado de uma interface específica.
 
-        Cria os atributos:
-        - self.vmapI_G{id}: Nós da interface do lado de cada grupo.
-        - self.mapI_G{id}: Índices desses nós dentro do vetor self.vmapM global.
+        Para uma interface entre o Grupo A e o Grupo B, este método cria:
+        - vmapIM_G{A}: Nós no lado 'Minus' que pertencem ao Grupo A.
+        - vmapIP_G{A}: Nós parceiros no lado 'Plus' (pertencentes ao Grupo B).
+        - vmapIM_G{B}: Nós no lado 'Minus' que pertencem ao Grupo B.
+        - vmapIP_G{B}: Nós parceiros no lado 'Plus' (pertencentes ao Grupo A).
+
+        Parâmetros
+        ----------
+        id_A : int
+            O ID do primeiro grupo físico na interface.
+        id_B : int
+            O ID do segundo grupo físico na interface.
         """
-        key1 = (group_id_1, group_id_2)
-        key2 = (group_id_2, group_id_1)
+        # 1. Determinar o elemento de origem ('Minus') para cada nó no mapa de interface.
+        nodes_per_element_face = self.n_fp * self.n_faces
+        element_indices_M = self.mapI // nodes_per_element_face
 
-        # 1. Encontra os nós da interface
-        if key1 in self.interface_maps:
-            nodes_g1 = self.interface_maps[key1]['vmapM']
-            nodes_g2 = self.interface_maps[key1]['vmapP']
-        elif key2 in self.interface_maps:
-            nodes_g1 = self.interface_maps[key2]['vmapP']
-            nodes_g2 = self.interface_maps[key2]['vmapM']
+        # 2. Obter o grupo físico de cada elemento de origem.
+        group_ids_M = self.mesh.EToG[element_indices_M]
+
+        # 3. Criar máscaras para filtrar por grupo de origem.
+        # Máscara para quando o lado 'Minus' da interface pertence ao Grupo A.
+        mask_A_is_minus = (group_ids_M == id_A)
+        # Máscara para quando o lado 'Minus' da interface pertence ao Grupo B.
+        mask_B_is_minus = (group_ids_M == id_B)
+
+        # 4. Aplicar as máscaras para criar os quatro mapas de valores desmembrados.
+        
+        # Par A: Visão da interface a partir do Grupo A
+        vmapIM_G_A = self.vmapIM[mask_A_is_minus]
+        vmapIP_G_A = self.vmapIP[mask_A_is_minus]
+
+        # Par B: Visão da interface a partir do Grupo B
+        vmapIM_G_B = self.vmapIM[mask_B_is_minus]
+        vmapIP_G_B = self.vmapIP[mask_B_is_minus]
+
+        # 5. Armazenar os novos mapas como atributos da classe usando setattr.
+        setattr(self, f'vmapIM_G{id_A}', vmapIM_G_A)
+        setattr(self, f'vmapIP_G{id_A}', vmapIP_G_A)        
+        setattr(self, f'vmapIM_G{id_B}', vmapIM_G_B)
+        setattr(self, f'vmapIP_G{id_B}', vmapIP_G_B)
+
+        # --- NOVO Passo 6: Identificar e armazenar os elementos únicos de cada grupo ---
+        elements_in_A = np.unique(element_indices_M[mask_A_is_minus])
+        elements_in_B = np.unique(element_indices_M[mask_B_is_minus])        
+        setattr(self, f'elements_G{id_A}', elements_in_A)
+        setattr(self, f'elements_G{id_B}', elements_in_B)
+
+        # Confirmação no console
+        print(f"\nInterface value maps created for groups ({id_A}, {id_B}):")
+        print(f" -> Found {len(elements_in_A)} unique elements for Group {id_A}.")
+        print(f" -> Found {len(elements_in_B)} unique elements for Group {id_B}.")
+        print(f" -> vmapIM_G{id_A} (Nodes in G{id_A}): {vmapIM_G_A.shape}")
+        print(f" -> vmapIP_G{id_A} (Partners in G{id_B}): {vmapIP_G_A.shape}")
+        print(f" -> vmapIM_G{id_B} (Nodes in G{id_B}): {vmapIM_G_B.shape}")
+        print(f" -> vmapIP_G{id_B} (Partners in G{id_A}): {vmapIP_G_B.shape}")
+        
+        # Verificação de consistência:
+        # Os nós do Grupo A devem ser os mesmos em vmapIM_G{A} e vmapIP_G{B}.
+        # A ordenação pode ser diferente, então comparamos os conjuntos de nós.
+        nodes_A_set1 = set(getattr(self, f'vmapIM_G{id_A}'))
+        nodes_A_set2 = set(getattr(self, f'vmapIP_G{id_B}'))
+
+        if nodes_A_set1 == nodes_A_set2:
+            print(f" -> Node consistency check for Group {id_A} passed.")
         else:
-            print(f"Aviso: Nenhuma interface encontrada entre os grupos {group_id_1} e {group_id_2}.")
-            return
+            print(f" -> WARNING: Node consistency check for Group {id_A} failed.")
 
-        # 2. Cria os atributos vmapI para os nós
-        setattr(self, f'vmapI_G{group_id_1}', nodes_g1)
-        setattr(self, f'vmapI_G{group_id_2}', nodes_g2)
+    def fieldsOnInterface(self, t):
+        """
+        Prepara os dicionários de correção para a interface TF/SF.
 
-        print(f"\nAtributo 'vmapI_G{group_id_1}' criado com {len(nodes_g1)} nós.")
-        print(f"\nAtributo 'vmapI_G{group_id_2}' criado com {len(nodes_g2)} nós.")
+        Esta versão calcula os campos incidentes e os ordena de acordo com
+        os mapas de cada lado da interface (SF->TF e TF->SF), retornando
+        todos os dados necessários para a correção em computeJumps.
+        """
+        if not self.incident_wave_function:
+            return {}
 
-        # 3. Encontra os índices desses nós no vetor vmapM global para criar os mapas.
+        # Obtenção dos mapas de índice para cada "lado" da interface
+        try:
+            map_sf = getattr(self, f'mapI_G{self.sf_group_id}')
+            map_tf = getattr(self, f'mapI_G{self.tfz_group_id}')
+        except AttributeError:
+            # Se os mapas ainda não foram criados, retorna dicionário vazio
+            return {}
 
-        # Para o grupo 1: encontra onde, em vmapM, estão os nós de vmapI_G1
-        mask_g1 = np.isin(self.vmapM, nodes_g1)
-        mapI_g1 = np.where(mask_g1)[0]
+        # --- Prepara correções para faces vistas do lado SF (SF -> TF) ---
+        vmap_sf = self.vmapM[map_sf]
+        x_sf = self.x.ravel('F')[vmap_sf]
+        y_sf = self.y.ravel('F')[vmap_sf]
+        z_sf = self.z.ravel('F')[vmap_sf]
+        fields_inc_sf = self.incident_wave_function(x_sf, y_sf, z_sf, t)
 
-        # Para o grupo 2: encontra onde, em vmapM, estão os nós de vmapI_G2
-        # NOTA: Isso busca os nós do lado G2 que atuam como "Minus" em alguma
-        # face da malha, o que é exatamente a perspectiva simétrica.
-        mask_g2 = np.isin(self.vmapM, nodes_g2)
-        mapI_g2 = np.where(mask_g2)[0]
+        # --- Prepara correções para faces vistas do lado TF (TF -> SF) ---
+        vmap_tf = self.vmapM[map_tf]
+        x_tf = self.x.ravel('F')[vmap_tf]
+        y_tf = self.y.ravel('F')[vmap_tf]
+        z_tf = self.z.ravel('F')[vmap_tf]
+        fields_inc_tf = self.incident_wave_function(x_tf, y_tf, z_tf, t)
 
-        # 4. Cria novos atributos mapI na instância do objeto
-        setattr(self, f'mapI_G{group_id_1}', mapI_g1)
-        setattr(self, f'mapI_G{group_id_2}', mapI_g2)
-
-        print(f"\nAtributo 'mapI_G{group_id_1}' criado com {len(mapI_g1)} índices.")
-        print(f"\nAtributo 'mapI_G{group_id_2}' criado com {len(mapI_g2)} índices.")
-
+        # Retorna uma estrutura de dados completa com todas as informações
+        return {
+            'map_scatter': map_sf,
+            'map_total': map_tf,
+            'fields_inc_scatter': fields_inc_sf, # (Hx_inc, Hy_inc, Hz_inc, Ex_inc, Ey_inc, Ez_inc)
+            'fields_inc_total': fields_inc_tf
+        }
+    
     def get_minimum_node_distance(self):
         points, _ = jacobi_gauss(0, 0, self.n_order)
         return abs(points[0]-points[1])
@@ -452,6 +468,35 @@ class Maxwell3D(SpatialDiscretization):
     def number_of_nodes_per_face(self):
         return int((self.n_order + 1) * (self.n_order + 2) // 2)
 
+    def count_boundary_elements(self):
+        """
+        Calcula o número de elementos que possuem pelo menos uma face na fronteira do domínio.
+
+        Um elemento é considerado de fronteira se qualquer um de seus nós de face
+        estiver contido no mapa de fronteira 'self.mapB'.
+
+        Retorna
+        -------
+        int
+            A quantidade total de elementos de fronteira únicos.
+        """
+        # Se mapB estiver vazio, não há nós de fronteira, logo, nenhum elemento de fronteira.
+        if self.mapB.size == 0:
+            return 0
+
+        # O vetor vmapM é achatado com ordem 'F', onde o índice do elemento (k)
+        # é o que varia mais lentamente. Podemos encontrá-lo com divisão inteira.
+        # O divisor é o número total de pontos de face por elemento.
+        nodes_per_element_face = self.n_fp * self.n_faces
+
+        # Calcula o índice do elemento (k) para cada nó no mapa de fronteira.
+        element_indices = self.mapB // nodes_per_element_face
+
+        # Conta o número de elementos únicos na lista de índices resultante.
+        num_boundary_elements = np.unique(element_indices).size
+
+        return num_boundary_elements
+    
     def buildEvolutionOperator(self):
         Np = self.number_of_nodes_per_element()
         K = self.mesh.number_of_elements()
@@ -662,6 +707,7 @@ class Maxwell3D(SpatialDiscretization):
         dEy = Ey.transpose().take(self.vmapM) - Ey.transpose().take(self.vmapP)
         dEz = Ez.transpose().take(self.vmapM) - Ez.transpose().take(self.vmapP)
 
+        # Form field differences at faces
         dHx[self.mapB] = Hx.transpose().take(self.vmapB) - Hbcx
         dHy[self.mapB] = Hy.transpose().take(self.vmapB) - Hbcy
         dHz[self.mapB] = Hz.transpose().take(self.vmapB) - Hbcz
@@ -669,6 +715,36 @@ class Maxwell3D(SpatialDiscretization):
         dEx[self.mapB] = Ex.transpose().take(self.vmapB) - Ebcx
         dEy[self.mapB] = Ey.transpose().take(self.vmapB) - Ebcy
         dEz[self.mapB] = Ez.transpose().take(self.vmapB) - Ebcz
+
+        # --- APLICAÇÃO DA CORREÇÃO TF/SF ---
+        if self.current_corrections:
+            # print("Aplicando correção TF/SF...")
+            # Extrai os mapas e os campos incidentes da estrutura de dados
+            map_scatter = self.current_corrections['map_scatter']
+            map_total = self.current_corrections['map_total']
+            
+            # Campos incidentes ordenados para cada mapa
+            # fields_inc é uma tupla (Hx, Hy, Hz, Ex, Ey, Ez)
+            fields_inc_scatter = self.current_corrections['fields_inc_scatter']
+            fields_inc_total = self.current_corrections['fields_inc_total']
+
+            # Extrai os componentes de campo relevantes (Ey é o índice 4, Hz é o 2)
+            Ey_inc_scatter = fields_inc_scatter[4]
+            Hz_inc_scatter = fields_inc_scatter[2]            
+            Ey_inc_total = fields_inc_total[4]
+            Hz_inc_total = fields_inc_total[2]
+
+            # 1. Aplica a correção para faces vistas do lado SF (SF(-) -> TF(+))
+            # dEy = (Ey⁻ - Ey⁺) + Ey_inc⁺
+            # Isso é equivalente a dEy = Ey⁻ - (Ey⁺ - Ey_inc⁺)
+            dEy[map_scatter] = Ey.transpose().take(self.vmapM[map_scatter]) - (Ey.transpose().take(self.vmapP[map_scatter]) - Ey_inc_scatter)
+            dHz[map_scatter] = Hz.transpose().take(self.vmapM[map_scatter]) - (Hz.transpose().take(self.vmapP[map_scatter]) - Hz_inc_scatter)
+
+            # # 2. Aplica a correção para faces vistas do lado TF (TF(-) -> SF(+))
+            # # dEy = (Ey⁻ - Ey⁺) - Ey_inc⁻
+            # # Isso é equivalente a dEy = (Ey⁻ - Ey_inc⁻) - Ey⁺
+            dEy[map_total] = Ey.transpose().take(self.vmapM[map_total]) - (Ey.transpose().take(self.vmapP[map_total]) + Ey_inc_total)
+            dHz[map_total] = Hz.transpose().take(self.vmapM[map_total]) - (Hz.transpose().take(self.vmapP[map_total]) + Hz_inc_total)
 
         dHx = dHx.reshape(self.n_fp*self.n_faces, self.mesh.number_of_elements(), order='F')
         dHy = dHy.reshape(self.n_fp*self.n_faces, self.mesh.number_of_elements(), order='F')

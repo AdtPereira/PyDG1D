@@ -99,3 +99,27 @@ class MaxwellDriver:
         
         return A
     
+    def step_at_time(self, t):
+        """
+        Avança a simulação em um passo de tempo, incluindo fontes dependentes do tempo.
+
+        Este método é a escolha para problemas como TF/SF, onde a fonte precisa
+        ser recalculada a cada instante 't' antes da integração.
+
+        Parâmetros
+        ----------
+        t : float
+            O tempo absoluto atual da simulação.
+        """
+        # 1. Calcula os campos da fonte para o instante de tempo 't'
+        #    Esta chamada usa a arquitetura que já estabelecemos, onde 'sp'
+        #    tem uma referência para a função da fonte.
+        corrections = self.sp.fieldsOnInterface(t)
+
+        # 2. Armazena as correções como um estado temporário em 'sp'
+        self.sp.set_current_source_corrections(corrections)
+
+        # 3. Executa o passo do integrador temporal (usando o dt interno).
+        #    A chamada ao 'timeIntegrator.step' é a mesma que no método step() original.
+        self.step()
+    

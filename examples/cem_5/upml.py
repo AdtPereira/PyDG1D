@@ -151,9 +151,11 @@ def spatial_discretization(problem):
     sp = Maxwell3D(
         n_order=problem['dg']['n_order'],
         mesh=mesh,
-        fluxType=problem['dg']['flux_type'],
-        pml_design=problem)
-    
+        fluxType=problem['dg']['flux_type'])
+
+    # 4. Criar os perfis de condutividade da PML
+    sp.sgm_x, sp.sgm_y, sp.sgm_z = sp.upml_sigma_fields(x=sp.x, y=sp.y, z=sp.z, problem=problem)
+
     print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}, {sp.mesh.number_of_elements()} elementos e {sp.number_of_nodes_per_element()} pontos por elemento.")
 
     return sa, sp

@@ -9,7 +9,7 @@ ESTE SCRIPT UTILIZA CAMINHOS ABSOLUTOS E NÃO ALTERA O DIRETÓRIO DE TRABALHO
 EXECUÇÃO:
 cd C:\\git\\PyDG1D
 conda activate pyDG1D
-python examples\\cem_5\\cubeK6.py
+python examples\\cem_5\\cubeK24.py
 
 ══════════════════════════════════════════════════════════════════════════
 
@@ -64,7 +64,6 @@ Data: 12/06/2025
 
 import os
 import sys
-import pandas as pd
 import matplotlib.pyplot as plt
 
 # Adiciona a raiz do projeto ao PYTHONPATH
@@ -74,7 +73,6 @@ from maxwell.dg.dg3d import *
 from maxwell.driver import *
 from maxwell.utils import *
 from maxwell.integrators.LSERK4 import *
-from maxwell.spectralAnalyzer import ResonantCavity3D
 
 from mesher.create_mesh import *
 from mesher.plot_mesh import *
@@ -82,21 +80,29 @@ from mesher.plot_mesh import *
 
 PROBLEM = {
     'DIM': 3,
-    'description': 'Teste de convergência do esquema DGTD tridimensional TMz.',
-    'name': 'buildMaps_cubeK6',
-    'folder': 'cem_5',
-    'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
-    'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
-    't0': 0.0,                  # Tempo inicial
-    'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
-    'm': 1,                     # Número de modo
-    'n': 1,                     # Número de modo
-    'L': 1,                     # Dimensão total do domínio
-    'n_order': 1,               # Ordem de interpolação polinomial
+    'description': 'Teste da UPML do esquema DGTD tridimensional.',
+    'name': 'upml',
+    'folder': 'buildMaps_cubeK96',
+    'dg': {
+        'n_order': 1,               # Ordem de interpolação polinomial
+        'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
+        'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
+        'bc': "SMA",                # Condição de contorno: 'PEC', 'SMA'  or 'Periodic
+        't_final': 10.0,            # Tempo final da simulação
+    },
+    'domain': {
+        'type': 'cubic',            # Tipo de domínio: 'rectangle' ou 'cubic'
+        'h': 4.0,                   # Tamanho máximo do elemento da malha
+        'Lx': 1.0,                  # Semi-lados do retângulo externo (domínio total)
+        'Ly': 1.0,                  # Dimensão total do domínio na direção y
+        'Lz': 1.0,                  # Dimensão total do domínio na direção z
+        'GID_TFZ': 1,               # Grupo físico para a Total Field Zone (TFZ)
+    },
 }
 
+SHOW_ELEMENTS = [4]  # Elementos a serem exibidos
 
-def single_test_validation(PROBLEM) -> None:
+def single_test_validation(problem) -> None:
     """
     Testa a solução numérica comparando com a solução analítica.
 
@@ -113,53 +119,66 @@ def single_test_validation(PROBLEM) -> None:
     -------
     None
     """
-    sa = ResonantCavity3D(PROBLEM)
-    
     # 1. Criar a malha cúbica com dimensão L com Gmsh
     gmsh.initialize()
-    mesh_cubeK6()
-    EToV = get_EToV(dim=PROBLEM['DIM'], index_based=0)
-    VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=PROBLEM['DIM']))
+    mesh_cubeK24(problem)
+    EToV = get_EToV(dim=problem['DIM'], index_based=0)
+    VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=problem['DIM']))
     # gmsh.fltk.run()
     gmsh.finalize()
 
+
     # 2. Criar o objeto Mesh3D 
-    mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=PROBLEM['bc'])
-
-    # 3. Plotar a malha de diferentes formas
-    print("\n🔎 Plotando a malha cúbica K6...")
-    # mesh.plot_mesh(title="mesh_cubeK6.msh", show_vertices=True, alpha=0.15)
-    # plot_cubeK6_mesh(VX, VY, VZ, EToV)
-    # plot_local_cubeK6_mesh(VX, VY, VZ, EToV)
-
+    mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=problem['dg']['bc'])
     print(f"\nMalha criada com {mesh.number_of_vertices()} vértices e {mesh.number_of_elements()} elementos.")
 
-    # 3. Definir a discretização espacial usando DG3D
-    sp = Maxwell3D(n_order=PROBLEM['n_order'], mesh=mesh, fluxType=PROBLEM['flux_type'])
-    print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}, {sp.mesh.number_of_elements()} elementos e {sp.number_of_nodes_per_element()} pontos por elemento.")
 
-    # 4. Estruturas de Dados DG-FEM
-    print(f"\n vmapM (Dim: {sp.vmapM.shape}): \n", sp.vmapM)
+    # 3. Criar grupo físico Total Field Zone (TFZ)
+    print("\n🔎 Criando grupos físicos na malha cúbica ...")
+    mesh.box_physical_group(
+        group_tag=problem['domain']['GID_TFZ'],
+        group_name="TFZ",
+        half_dim=(problem['domain']['Lx'], problem['domain']['Ly'], problem['domain']['Lz']),
+        center=(0.0, 0.0, 0.0),
+        group_info=True
+    )
+
+
+    # 4. Plotar a malha
+    print("\n🔎 Plotando a malha cúbica ...")
+    # mesh.plot_mesh(title="mesh_cubeK24.msh", show_vertices=True, alpha=0.15)
+
+
+    # 5. Definir a discretização espacial usando DG3D
+    sp = Maxwell3D(n_order=problem['dg']['n_order'], mesh=mesh, fluxType=problem['dg']['flux_type'])
+    print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}...")
+    print(f"{sp.mesh.number_of_elements()} elementos totais, {sp.count_boundary_elements()} elementos de borda e {sp.number_of_nodes_per_element()} pontos por elemento.")
+
+    # 6. Estruturas de Dados DG-FEM
+
+    print(f"\n🔎 Criando estruturas de dados da malha para os elementos {SHOW_ELEMENTS}...")
+    format_matrix(sp.mesh.EToV, title="EToV", elements=SHOW_ELEMENTS)    
+    format_matrix(sp.EToE, title="EToE", elements=SHOW_ELEMENTS)
+    format_matrix(sp.EToF, title="EToF", elements=SHOW_ELEMENTS)
+
+    print(f"\nEToG (Dim: {sp.mesh.EToG.shape}): \n", sp.mesh.EToG)
+
     vmapM_3D = sp.vmapM.reshape((sp.n_fp, sp.n_faces, sp.mesh.number_of_elements()), order='F')
-    print_3d_matrices(vmapM_3D, title="vmapM")
-
-    print(f"\n vmapP (Dim: {sp.vmapP.shape}): \n", sp.vmapP)
     vmapP_3D = sp.vmapP.reshape((sp.n_fp, sp.n_faces, sp.mesh.number_of_elements()), order='F')
-    print_3d_matrices(vmapP_3D, title="vmapP")
+    print_3d_matrices(vmapM_3D, elements=SHOW_ELEMENTS, title=f"vmapM (dim: {vmapM_3D.shape})")
+    print_3d_matrices(vmapP_3D, elements=SHOW_ELEMENTS, title=f"vmapP (dim: {vmapP_3D.shape})")
 
     print(f"\n vmapB (Dim: {sp.vmapB.shape}): \n", sp.vmapB)
-    print(f"\n mapB (Dim: {sp.mapB.shape}): \n", sp.mapB)
+    print(f"\n mapB (Dim: {sp.mapB.shape}): \n", sp.mapB)    
 
-    # 5. Plotar a malha com os ids dos pontos de colocação
-    plot_buildMaps_cubeK6(sp)
+
+    # 7. Plotar a malha destacando os elementos de fronteira, internos 
+    plot_elements(sp, plot_type='boundary', ELEMENT_ID=None)
 
 
 def main() -> None:
     """Função principal para execução do script."""
     clear_terminal()
-
-    # Test 0 - Validação de um único teste considerando o código MATLAB
-    print("\n🔎 Teste de validação com código MATLAB...")
     single_test_validation(PROBLEM)
 
 

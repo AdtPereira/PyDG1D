@@ -100,7 +100,7 @@ class Mesh3D:
         return np.where(self.EToG == group_tag)[0]
 
 
-    def box_physical_group(self, group_tag, group_name, box_dims, center=(0, 0, 0)):
+    def box_physical_group(self, group_tag, group_name, half_dim, center=(0, 0, 0), group_info=True):
         """
         Atribui uma nova tag de grupo aos elementos contidos em uma caixa.
         Modifica o vetor self.EtoG diretamente.
@@ -110,9 +110,8 @@ class Mesh3D:
             return np.array([], dtype=int)
             
         print(f"Atribuindo grupo '{group_name}' (Tag: {group_tag})...")
-        half_dims = np.array(box_dims) / 2.0
-        min_coords = np.array(center) - half_dims
-        max_coords = np.array(center) + half_dims
+        min_coords = np.array(center) - half_dim
+        max_coords = np.array(center) + half_dim
         
         elements_to_assign = []
         for k in range(self.number_of_elements()):
@@ -141,6 +140,23 @@ class Mesh3D:
         self.group_names[group_tag] = group_name
         
         print(f"-> {len(elements_to_assign)} elementos foram atribuídos à tag {group_tag}.")
+
+        if group_info:
+            # 3. Relatório final usando os novos métodos de acesso
+            print("\n--- Relatório Final de Grupos Físicos ---")
+            print("Grupos definidos:", self.group_names)
+
+            for tag, name in self.group_names.items():
+                # Usa o novo método para buscar os elementos por grupo
+                elements_in_group = self.get_elements_by_group(tag)
+                print(f"  - Grupo '{name}' (Tag {tag}): {len(elements_in_group)} elementos.")
+
+            assigned_tets = len(self.get_elements_by_group(group_tag))
+            unassigned_tets_count = len(self.get_elements_by_group(0))
+
+            assert self.number_of_elements() == assigned_tets + unassigned_tets_count, \
+            f"Erro: Total de elementos ({self.number_of_elements()}) não corresponde à soma dos atribuídos ({assigned_tets}) e não atribuídos ({unassigned_tets_count})."
+        
         return elements_to_assign
     
 

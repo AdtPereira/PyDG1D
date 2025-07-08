@@ -284,11 +284,16 @@ def mesh_cubeK6():
     gmsh.model.mesh.generate(3)
 
 
-def mesh_cubeK24(L):
+def mesh_cubeK24(problem):
+    # --- Parâmetros Geométricos e de Malha ---
+    Lx = problem['domain']['Lx']    # Dimensão total do domínio na direção x
+    Ly = problem['domain']['Ly']    # Dimensão total do domínio na direção y
+    Lz = problem['domain']['Lz']    # Dimensão total do domínio na direção z
+
     gmsh.model.add("cubeK24")
 
     # 1. Cria o cubo da mesma forma que antes
-    box = gmsh.model.occ.addBox(0, 0, 0, L, L, L)
+    box = gmsh.model.occ.addBox(0, 0, 0, Lx, Ly, Lz)
     gmsh.model.occ.synchronize()
 
     # 5. Gera a malha 3D
@@ -333,20 +338,19 @@ def mesh_cubeK96_upml(problem):
     gmsh.model.mesh.generate(3)
 
 
-def mesh_cubeK540_tfsf(problem):
+def mesh_cubeK252_tfsf(problem):
     # --- Parâmetros Geométricos e de Malha ---
-    L = problem['pml']['L']         # Largura da camada da PML
-    h = problem['domain']['h']      # Tamanho máximo do elemento da malha # h = 2.0
-    Lx = problem['domain']['Lx']    # Dimensão total do domínio na direção x
-    xa = Lx - L                     # semi-lados do retângulo (intermediário) SFZ
-    x0 = xa - L                     # semi-lados do retângulo (interno) TFS
+    h = problem['domain']['h']      # Tamanho máximo do elemento da malha
+    xa = problem['domain']['xa']    # Semi-lado do retângulo interno (TFZ)
+    x0 = problem['domain']['x0']    # Semi-lado do retângulo intermediário (SFZ)
+    Lx = problem['domain']['Lx']    # Semi-lado do retângulo externo (domínio total)
 
     gmsh.model.add("cubeK168_tfsf")
     factory = gmsh.model.occ
 
     # --- Criação da Geometria ---
-    tfz = factory.addBox(-x0, -x0, -x0, 2*x0, 2*x0, 2*x0)
-    sfz = factory.addBox(-xa, -xa, -xa, 2*xa, 2*xa, 2*xa)
+    tfz = factory.addBox(-xa, -xa, -xa, 2*xa, 2*xa, 2*xa)
+    sfz = factory.addBox(-x0, -x0, -x0, 2*x0, 2*x0, 2*x0)
     pml = factory.addBox(-Lx, -Lx, -Lx, 2*Lx, 2*Lx, 2*Lx)
 
     # Realiza o corte do volume PML pelo volume SFZ

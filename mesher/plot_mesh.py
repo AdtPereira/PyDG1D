@@ -332,24 +332,45 @@ def get_domain_cube_geometry(domain_limits=((-0.1, 1.1), (-0.1, 1.1), (-0.1, 1.1
     return verts, edges
 
 
-def plot_element_faces(ax, element_vertices):
-    """Desenha as faces de um elemento tetraédrico."""
-    # Um tetraedro tem 4 faces triangulares
-    faces_indices = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]
+# def plot_element_faces(ax, element_vertices):
+#     """Desenha as faces de um elemento tetraédrico."""
+#     # Um tetraedro tem 4 faces triangulares
+#     faces_indices = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]
     
-    # Coleta as coordenadas dos vértices para cada face
-    faces_verts = [[element_vertices[i] for i in face] for face in faces_indices]
+#     # Coleta as coordenadas dos vértices para cada face
+#     faces_verts = [[element_vertices[i] for i in face] for face in faces_indices]
 
-    poly = Poly3DCollection(faces_verts, facecolor='cyan', edgecolor='k', alpha=0.2)
-    ax.add_collection3d(poly)
+#     poly = Poly3DCollection(faces_verts, facecolor='cyan', edgecolor='k', alpha=0.2)
+#     ax.add_collection3d(poly)
 
 
-def plot_dg_nodes(ax, node_coords, node_ids):
-    """Plota os nós de DG e seus IDs globais."""
-    ax.scatter(node_coords[:, 0], node_coords[:, 1], node_coords[:, 2], color='red', s=18, zorder=10)
+def plot_dg_nodes(ax, node_coords, node_ids, highlight_nodes=None):
+    """
+    Plota os nós de DG e seus IDs globais, com a opção de destacar um subconjunto.
+
+    Parâmetros:
+        ax: Eixo do Matplotlib.
+        node_coords (ndarray): Coordenadas (x,y,z) dos nós do elemento.
+        node_ids (ndarray): IDs globais dos nós.
+        highlight_nodes (set, optional): Um set de IDs de nós a serem destacados.
+    """
+    if highlight_nodes is None:
+        highlight_nodes = set()
+
+    # Plota os nós de DG e seus IDs globais
     for i in range(len(node_ids)):
-        ax.text(node_coords[i, 0], node_coords[i, 1], node_coords[i, 2] + 0.08,
-                f'{node_ids[i]}', color='black', ha='center', va='bottom', fontsize=8, weight='bold')
+        node_id = node_ids[i]
+        coords = node_coords[i]
+        
+        if node_id in highlight_nodes:
+            # Nó destacado (de fronteira)
+            ax.scatter(coords[0], coords[1], coords[2], color='magenta', s=60, zorder=12, edgecolor='black')
+        else:
+            # Nó padrão (interno ao elemento)
+            ax.scatter(coords[0], coords[1], coords[2], color='red', s=20, zorder=10)
+            
+        ax.text(coords[0], coords[1], coords[2] + 0.08,
+                f'{node_id}', color='black', ha='center', va='bottom', fontsize=8, weight='bold')
 
 
 def plot_element_label(ax, element_vertices, element_id):
@@ -359,8 +380,8 @@ def plot_element_label(ax, element_vertices, element_id):
     top_vertex_coords = element_vertices[top_vertex_index]
 
     # 2. Posicionar o texto um pouco acima deste vértice
-    text_position = top_vertex_coords + np.array([0, 0, 1.0]) # Offset em Z
-
+    text_position = top_vertex_coords + np.array([-0.8, 0, 0.0]) # Offset em Z
+    
     ax.text(*text_position, f't{element_id}', color='white', ha='center', va='center',
             fontsize=8, weight='bold', bbox=dict(facecolor='navy', alpha=0.6, boxstyle='circle'))
 
@@ -382,79 +403,79 @@ def setup_plot_axes(ax, limits):
     ax.axis('off')
 
 
-def find_interface_elements_on_face(dg_solver, group_id, face_index, group_cube_dim):
-    """
-    Encontra os elementos de um grupo que estão em uma face de interface específica.
+# def find_interface_elements_on_face(dg, group_id, face_index, group_cube_dim):
+#     """
+#     Encontra os elementos de um grupo que estão em uma face de interface específica.
 
-    Esta função encapsula a lógica de filtragem para identificar quais
-    elementos de um 'group_id' tocam uma face específica do cubo que o define.
+#     Esta função encapsula a lógica de filtragem para identificar quais
+#     elementos de um 'group_id' tocam uma face específica do cubo que o define.
 
-    Retorna:
-        list: Uma lista de índices de elementos que satisfazem os critérios.
-    """
-    if group_cube_dim is None or group_cube_dim <= 0:
-        raise ValueError("A dimensão do cubo do grupo físico (group_cube_dim) deve ser um número positivo.")
+#     Retorna:
+#         list: Uma lista de índices de elementos que satisfazem os critérios.
+#     """
+#     if group_cube_dim is None or group_cube_dim <= 0:
+#         raise ValueError("A dimensão do cubo do grupo físico (group_cube_dim) deve ser um número positivo.")
 
-    # Mapeia o índice da face (0-5) para um eixo e direção
-    face_definitions = {
-        0: {'axis': 0, 'sign': +1, 'name': '+X'}, 1: {'axis': 0, 'sign': -1, 'name': '-X'},
-        2: {'axis': 1, 'sign': +1, 'name': '+Y'}, 3: {'axis': 1, 'sign': -1, 'name': '-Y'},
-        4: {'axis': 2, 'sign': +1, 'name': '+Z'}, 5: {'axis': 2, 'sign': -1, 'name': '-Z'}
-    }
-    if face_index not in face_definitions:
-        raise ValueError(f"Índice de face (No_FACE) inválido: {face_index}. Deve ser entre 0 e 5.")
+#     # Mapeia o índice da face (0-5) para um eixo e direção
+#     face_definitions = {
+#         0: {'axis': 0, 'sign': +1, 'name': '+X'}, 1: {'axis': 0, 'sign': -1, 'name': '-X'},
+#         2: {'axis': 1, 'sign': +1, 'name': '+Y'}, 3: {'axis': 1, 'sign': -1, 'name': '-Y'},
+#         4: {'axis': 2, 'sign': +1, 'name': '+Z'}, 5: {'axis': 2, 'sign': -1, 'name': '-Z'}
+#     }
+#     if face_index not in face_definitions:
+#         raise ValueError(f"Índice de face (No_FACE) inválido: {face_index}. Deve ser entre 0 e 5.")
     
-    face_def = face_definitions[face_index]
-    plane_coord = face_def['sign'] * (group_cube_dim / 2.0)
-    plane_axis = face_def['axis']
+#     face_def = face_definitions[face_index]
+#     plane_coord = face_def['sign'] * (group_cube_dim / 2.0)
+#     plane_axis = face_def['axis']
 
-    elements_on_face = []
-    target_elements = dg_solver.mesh.get_elements_by_group(group_id)
+#     elements_on_face = []
+#     target_elements = dg.mesh.get_elements_by_group(group_id)
 
-    # Itera sobre os elementos do grupo para encontrar os que estão na interface correta
-    for k in target_elements:
-        for f in range(dg_solver.n_faces):
-            k_neighbor = dg_solver.EToE[k, f]
-            # É uma face de interface?
-            if k != k_neighbor and dg_solver.mesh.EToG[k_neighbor] != group_id:
-                # Calcular o centroide desta face para verificar sua posição
-                face_nodes_local = dg_solver.fmask[:, f]
-                coords_k = np.array([dg_solver.x[:, k], dg_solver.y[:, k], dg_solver.z[:, k]]).T
-                face_centroid = np.mean(coords_k[face_nodes_local], axis=0)
+#     # Itera sobre os elementos do grupo para encontrar os que estão na interface correta
+#     for k in target_elements:
+#         for f in range(dg.n_faces):
+#             k_neighbor = dg.EToE[k, f]
+#             # É uma face de interface?
+#             if k != k_neighbor and dg.mesh.EToG[k_neighbor] != group_id:
+#                 # Calcular o centroide desta face para verificar sua posição
+#                 face_nodes_local = dg.fmask[:, f]
+#                 coords_k = np.array([dg.x[:, k], dg.y[:, k], dg.z[:, k]]).T
+#                 face_centroid = np.mean(coords_k[face_nodes_local], axis=0)
                 
-                # A face está no plano correto?
-                if np.isclose(face_centroid[plane_axis], plane_coord, atol=1e-9):
-                    elements_on_face.append(k)
-                    break  # Elemento encontrado, otimiza o laço
+#                 # A face está no plano correto?
+#                 if np.isclose(face_centroid[plane_axis], plane_coord, atol=1e-9):
+#                     elements_on_face.append(k)
+#                     break  # Elemento encontrado, otimiza o laço
 
-    return sorted(list(set(elements_on_face)))
+#     return sorted(list(set(elements_on_face)))
 
 
-def get_group_wireframe_edges(dg_solver, group_id):
+def get_group_wireframe_edges(dg, group_id):
     """
     Prepara as arestas do wireframe para um grupo físico específico.
     """
     # Obter os elementos que pertencem ao grupo de interesse
-    group_element_indices = dg_solver.mesh.get_elements_by_group(group_id)
+    group_element_indices = dg.mesh.get_elements_by_group(group_id)
     if len(group_element_indices) == 0:
         return []
     
     # Criar uma matriz de conectividade contendo apenas esses elementos
-    group_EToV = dg_solver.mesh.EToV[group_element_indices]
+    group_EToV = dg.mesh.EToV[group_element_indices]
     
     # Extrair as arestas apenas deste subconjunto de elementos
     return extract_all_mesh_edges(group_EToV)
 
 
-def plot_buildMaps_cubeK6(dg_solver):
+def plot_buildMaps_cubeK6(dg):
     """
     Plota a malha e os nós de DG, usando o wireframe completo da malha como referência.
     Esta versão implementa o comportamento visual solicitado.
     """
     # Extrai os dados básicos do solver
-    EToV = dg_solver.mesh.EToV
-    VX, VY, VZ = dg_solver.mesh.vx, dg_solver.mesh.vy, dg_solver.mesh.vz
-    K = dg_solver.mesh.number_of_elements()
+    EToV = dg.mesh.EToV
+    VX, VY, VZ = dg.mesh.vx, dg.mesh.vy, dg.mesh.vz
+    K = dg.mesh.number_of_elements()
 
     # 1. Extrai todas as arestas únicas da malha para o wireframe
     all_mesh_edges = extract_all_mesh_edges(EToV)
@@ -477,8 +498,8 @@ def plot_buildMaps_cubeK6(dg_solver):
         # Coleta de dados específicos do elemento 'k'
         vert_indices = EToV[k]
         element_vertices = np.array([VX[vert_indices], VY[vert_indices], VZ[vert_indices]]).T
-        node_coords_k = np.array([dg_solver.x[:, k], dg_solver.y[:, k], dg_solver.z[:, k]]).T
-        node_ids_k = dg_solver.node_ids[:, k]
+        node_coords_k = np.array([dg.x[:, k], dg.y[:, k], dg.z[:, k]]).T
+        node_ids_k = dg.node_ids[:, k]
 
         # --- Orquestração da plotagem ---
         # 2. Desenha o wireframe completo da malha como fundo
@@ -499,12 +520,12 @@ def plot_buildMaps_cubeK6(dg_solver):
     plt.tight_layout(rect=[0, 0, 1, 0.96])
 
 
-def plot_buildInterfaceMaps_cubeK96(dg_solver, GROUP_ID=1, No_FACE=0, tfz_dim=None):
+def plot_buildInterfaceMaps_cubeK96(dg, GROUP_ID=1, No_FACE=0, tfz_dim=None):
     """
     Plota os elementos de uma interface específica usando funções auxiliares refatoradas.
     """
     # 1. Encontrar os elementos de interesse usando a nova função de filtragem
-    elements_to_plot = find_interface_elements_on_face(dg_solver, GROUP_ID, No_FACE, tfz_dim)
+    elements_to_plot = find_interface_elements_on_face(dg, GROUP_ID, No_FACE, tfz_dim)
     
     if not elements_to_plot:
         print(f"Nenhum elemento do grupo {GROUP_ID} encontrado na face {No_FACE}.")
@@ -513,10 +534,10 @@ def plot_buildInterfaceMaps_cubeK96(dg_solver, GROUP_ID=1, No_FACE=0, tfz_dim=No
     print(f"\n Encontrados {len(elements_to_plot)} elementos na interface. Plotando...")
 
     # 2. Preparar o wireframe de fundo para o grupo de interesse
-    background_edges = get_group_wireframe_edges(dg_solver, GROUP_ID)
+    background_edges = get_group_wireframe_edges(dg, GROUP_ID)
 
     # 3. Preparar dados gerais para plotagem
-    VX, VY, VZ = dg_solver.mesh.vx, dg_solver.mesh.vy, dg_solver.mesh.vz
+    VX, VY, VZ = dg.mesh.vx, dg.mesh.vy, dg.mesh.vz
     domain_limits = ((VX.min()-0.1, VX.max()+0.1), (VY.min()-0.1, VY.max()+0.1), (VZ.min()-0.1, VZ.max()+0.1))
     
     # 4. Configurar a figura
@@ -533,14 +554,14 @@ def plot_buildInterfaceMaps_cubeK96(dg_solver, GROUP_ID=1, No_FACE=0, tfz_dim=No
         # Coleta de dados do elemento 'k'
 
         # 1. Obtém os índices dos 4 vértices que formam o elemento 'k'
-        vert_indices = dg_solver.mesh.EToV[k]
+        vert_indices = dg.mesh.EToV[k]
 
         # 2. Usa os índices para buscar as coordenadas (x,y,z) desses vértices
         element_vertices = np.array([VX[vert_indices], VY[vert_indices], VZ[vert_indices]]).T
 
         # 3. Coleta as coordenadas e IDs de todos os nós de DG dentro do elemento 'k'
-        node_coords_k = np.array([dg_solver.x[:, k], dg_solver.y[:, k], dg_solver.z[:, k]]).T
-        node_ids_k = dg_solver.node_ids[:, k]
+        node_coords_k = np.array([dg.x[:, k], dg.y[:, k], dg.z[:, k]]).T
+        node_ids_k = dg.node_ids[:, k]
 
         # Chamada às funções de plotagem modulares
         plot_wireframe(ax, VX, VY, VZ, background_edges)
@@ -555,3 +576,284 @@ def plot_buildInterfaceMaps_cubeK96(dg_solver, GROUP_ID=1, No_FACE=0, tfz_dim=No
         
     plt.tight_layout(rect=[0, 0, 1, 0.95])
 
+
+def _validate_plot_arguments(plot_type, layout):
+    """Valida os argumentos de tipo de plotagem e layout."""
+    valid_plot_types = ['all', 'boundary', 'internal']
+    if plot_type not in valid_plot_types:
+        raise ValueError(f"Tipo de plotagem inválido '{plot_type}'. Use um de {valid_plot_types}.")
+    
+    valid_layouts = ['separated', 'combined']
+    if layout not in valid_layouts:
+        raise ValueError(f"Layout inválido '{layout}'. Use 'separated' ou 'combined'.")
+
+
+def _classify_elements(dg):
+    """Classifica os elementos da malha em internos e de fronteira."""
+    all_elements_set = set(range(dg.mesh.number_of_elements()))
+    
+    boundary_elements_set = set()
+    boundary_node_ids = set()
+    
+    # Verifica se existem nós de fronteira definidos
+    if dg.mapB.size > 0:
+        # Calcula os índices dos elementos que contêm os nós de fronteira
+        elem_indices = dg.mapB // (dg.n_fp * dg.n_faces)
+        boundary_elements_set = set(np.unique(elem_indices))
+        boundary_node_ids = set(dg.vmapB)
+    
+    internal_elements_set = all_elements_set - boundary_elements_set
+    
+    return boundary_elements_set, internal_elements_set, boundary_node_ids
+
+
+def _select_elements_to_plot(plot_type, boundary_set, internal_set):
+    """Seleciona os elementos a serem plotados e define o título e a legenda."""
+    if plot_type == 'all':
+        elements = sorted(list(boundary_set | internal_set))
+        title = "Visualização de Todos os Elementos"
+        patches = [
+            Patch(facecolor='cyan', label='Elemento de Fronteira'),
+            Patch(facecolor='lightgreen', label='Elemento Interno')
+        ]
+    elif plot_type == 'boundary':
+        elements = sorted(list(boundary_set))
+        title = "Visualização dos Elementos de Fronteira"
+        patches = [Patch(facecolor='cyan', label='Elemento de Fronteira')]
+    else:  # 'internal'
+        elements = sorted(list(internal_set))
+        title = "Visualização dos Elementos Internos"
+        patches = [Patch(facecolor='lightgreen', label='Elemento Interno')]
+        
+    return elements, title, patches
+
+
+def _setup_figure(layout, num_elements, title):
+    """Cria e configura a figura e os eixos do Matplotlib."""
+    if layout == 'separated':
+        ncols = min(num_elements, 4)
+        nrows = (num_elements + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, subplot_kw={'projection': '3d'}, figsize=(18, 4.5 * nrows))
+        axes = axes.flatten() if num_elements > 1 else [axes]
+    else:  # 'combined'
+        fig = plt.figure(figsize=(12, 10))
+        axes = [fig.add_subplot(111, projection='3d')]
+        
+    fig.suptitle(title, fontsize=16)
+    return fig, axes
+
+
+def _draw_single_element(ax, dg, k, plot_config):
+    """Desenha um único elemento (faces, nós, rótulos) em um eixo específico."""
+    # Extrai dados do elemento 'k'
+    vert_indices = dg.mesh.EToV[k]
+    element_vertices = np.array([dg.mesh.vx[vert_indices], dg.mesh.vy[vert_indices], dg.mesh.vz[vert_indices]]).T
+    node_coords_k = np.array([dg.x[:, k], dg.y[:, k], dg.z[:, k]]).T
+    node_ids_k = dg.node_ids[:, k]
+
+    # Determina a cor e quais nós destacar
+    if k in plot_config['boundary_elements_set']:
+        face_color, nodes_to_highlight = 'cyan', plot_config['boundary_node_ids']
+    else:
+        face_color, nodes_to_highlight = 'lightgreen', None
+
+    # Desenha o wireframe de fundo
+    plot_wireframe(ax, dg.mesh.vx, dg.mesh.vy, dg.mesh.vz, plot_config['all_mesh_edges'])
+
+    # Desenha as faces do elemento
+    faces_indices = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]
+    faces_verts = [[element_vertices[i] for i in face] for face in faces_indices]
+    poly = Poly3DCollection(faces_verts, facecolor=face_color, edgecolor='k', alpha=plot_config['alpha'])
+    ax.add_collection3d(poly)
+
+    # Desenha os nós de DG se aplicável
+    if plot_config['should_plot_nodes']:
+        plot_dg_nodes(ax, node_coords_k, node_ids_k, highlight_nodes=nodes_to_highlight)
+
+    # Adiciona rótulos e configura os eixos
+    plot_element_label(ax, element_vertices, k)
+    setup_plot_axes(ax, plot_config['domain_limits'])
+    if plot_config['layout'] == 'separated':
+        ax.set_title(f"Elemento {k}", fontsize=10)
+
+
+def plot_elements(dg, plot_type='all', layout='separated', ELEMENT_ID=None):
+    """
+    Plota os elementos da malha com opções de filtragem e layout.
+
+    Parâmetros:
+        dg: Objeto da classe Maxwell3D.
+        plot_type (str): 'all', 'boundary' ou 'internal'. Ignorado se ELEMENT_ID for fornecido.
+        layout (str): 'separated' ou 'combined'.
+        ELEMENT_ID (int ou list, opcional): Um ID de elemento específico ou uma lista de IDs
+                                             para plotar. Se fornecido, sobrepõe 'plot_type'.
+    """
+    # 1. Validação dos argumentos de entrada
+    _validate_plot_arguments(plot_type, layout)
+
+    # 2. Classificação de todos os elementos (necessário para cores e legendas)
+    boundary_elements, internal_elements, boundary_nodes = _classify_elements(dg)
+
+    # 3. Seleção de elementos com base em ELEMENT_ID ou plot_type
+    if ELEMENT_ID is not None:
+        # Padroniza ELEMENT_ID para ser sempre uma lista
+        if isinstance(ELEMENT_ID, int):
+            elements_to_plot = [ELEMENT_ID]
+        elif isinstance(ELEMENT_ID, list):
+            elements_to_plot = ELEMENT_ID
+        else:
+            raise TypeError("ELEMENT_ID deve ser um inteiro ou uma lista de inteiros.")
+
+        # Valida se os IDs fornecidos são válidos
+        max_id = dg.mesh.number_of_elements() - 1
+        if any(not (0 <= eid <= max_id) for eid in elements_to_plot):
+            raise ValueError(f"Um ou mais IDs em ELEMENT_ID estão fora do intervalo válido [0, {max_id}].")
+        
+        # Define o título e a legenda para os elementos específicos
+        title = f"Visualização do(s) Elemento(s) Específico(s): {elements_to_plot}"
+        legend_patches = []
+        if any(k in boundary_elements for k in elements_to_plot):
+            legend_patches.append(Patch(facecolor='cyan', label='Elemento de Fronteira'))
+        if any(k in internal_elements for k in elements_to_plot):
+            legend_patches.append(Patch(facecolor='lightgreen', label='Elemento Interno'))
+    else:
+        # Comportamento original: usa plot_type para selecionar os elementos
+        elements_to_plot, title, legend_patches = _select_elements_to_plot(
+            plot_type, boundary_elements, internal_elements)
+
+    # 4. Procede com a plotagem se houver elementos a serem exibidos
+    if not elements_to_plot:
+        if ELEMENT_ID:
+            print(f"IDs de elemento {ELEMENT_ID} não encontrados.")
+        else:
+            print(f"Nenhum elemento do tipo '{plot_type}' encontrado para plotar.")
+        return
+
+    print(f"\nPlotando {len(elements_to_plot)} elemento(s) (layout: '{layout}')...")
+
+    # 5. Preparação de dados e configurações gerais para a plotagem
+    plot_config = {
+        'all_mesh_edges': extract_all_mesh_edges(dg.mesh.EToV),
+        'domain_limits': (
+            (dg.mesh.vx.min() - 0.1, dg.mesh.vx.max() + 0.1),
+            (dg.mesh.vy.min() - 0.1, dg.mesh.vy.max() + 0.1),
+            (dg.mesh.vz.min() - 0.1, dg.mesh.vz.max() + 0.1)
+        ),
+        'boundary_elements_set': boundary_elements,
+        'boundary_node_ids': boundary_nodes,
+        'layout': layout,
+        'should_plot_nodes': not (layout == 'combined' and plot_type == 'all' and ELEMENT_ID is None),
+        'alpha': 0.5 if layout == 'combined' else 0.3
+    }
+    
+    # 6. Configuração da figura
+    fig, axes = _setup_figure(layout, len(elements_to_plot), title)
+    
+    # 7. Orquestração da plotagem
+    if layout == 'separated':
+        for i, k in enumerate(elements_to_plot):
+            _draw_single_element(axes[i], dg, k, plot_config)
+    else: # 'combined'
+        ax = axes[0]
+        plot_wireframe(ax, dg.mesh.vx, dg.mesh.vy, dg.mesh.vz, plot_config['all_mesh_edges'])
+        for k in elements_to_plot:
+            # Corrigido para passar o argumento 'dg' que faltava na chamada anterior
+            _draw_single_element(ax, dg, k, plot_config)
+
+    # 8. Finalização do plot
+    if layout == 'separated':
+        for j in range(len(elements_to_plot), len(axes)):
+            axes[j].axis('off')
+            
+    if legend_patches:
+        fig.legend(handles=legend_patches, loc='upper right', fontsize=12)
+    plt.tight_layout(rect=[0, 0, 0.9, 0.95])
+
+
+def plot_interface_elements(dg, group_id, partner_group_id, layout='combined'):
+    """
+    Plota os elementos de um grupo que participam de uma interface,
+    destacando os nós de DG que estão exatamente na face da interface.
+    A identificação dos elementos e nós é feita via mapas pré-calculados
+    no objeto 'dg' (solver).
+
+    Parâmetros:
+        dg: Objeto da classe Maxwell3D.
+        group_id (int): O ID do grupo cujos elementos de interface serão plotados.
+        partner_group_id (int): O ID do grupo vizinho na interface (para contexto).
+        layout (str): 'separated' para um subplot por elemento ou 'combined'
+                      para todos os elementos no mesmo subplot.
+    """
+    # 1. Obter dados da interface diretamente do objeto solver 'dg'
+    try:
+        elements_to_plot = getattr(dg, f'elements_G{group_id}')
+        # Nós deste grupo que estão na interface
+        nodes_to_highlight = set(getattr(dg, f'vmapIM_G{group_id}'))
+    except AttributeError:
+        print(f"\nErro: Mapas de interface para o grupo {group_id} não foram encontrados no objeto 'dg'.")
+        print("-> Certifique-se de que 'dg.buildGroupInterfaceMaps()' foi executado corretamente.")
+        return
+
+    if len(elements_to_plot) == 0:
+        print(f"\nNenhum elemento de interface encontrado para o grupo {group_id}.")
+        return
+
+    print(f"\nPlotando {len(elements_to_plot)} elementos do Grupo {group_id} na interface com o Grupo {partner_group_id}...")
+
+    # 2. Configurar a figura e os eixos
+    title = f"Elementos do Grupo {group_id} na Interface"
+    fig, axes = _setup_figure(layout, len(elements_to_plot), title)
+    
+    # 3. Preparar dados de fundo (wireframe da malha inteira)
+    plot_config = {
+        'all_mesh_edges': extract_all_mesh_edges(dg.mesh.EToV),
+        'domain_limits': (
+            (dg.mesh.vx.min() - 0.1, dg.mesh.vx.max() + 0.1),
+            (dg.mesh.vy.min() - 0.1, dg.mesh.vy.max() + 0.1),
+            (dg.mesh.vz.min() - 0.1, dg.mesh.vz.max() + 0.1)
+        ),
+        'layout': layout,
+        # Nós a serem destacados com cor diferente
+        'nodes_to_highlight': nodes_to_highlight, 
+        'alpha': 0.5 if layout == 'combined' else 0.3
+    }
+
+    # 4. Orquestrar a plotagem dos elementos
+    for i, k in enumerate(elements_to_plot):
+        ax = axes[i] if layout == 'separated' else axes[0]
+        
+        # Coleta de dados do elemento 'k'
+        vert_indices = dg.mesh.EToV[k]
+        element_vertices = np.array([dg.mesh.vx[vert_indices], dg.mesh.vy[vert_indices], dg.mesh.vz[vert_indices]]).T
+        node_coords_k = np.array([dg.x[:, k], dg.y[:, k], dg.z[:, k]]).T
+        node_ids_k = dg.node_ids[:, k]
+
+        # Desenha o wireframe de fundo
+        plot_wireframe(ax, dg.mesh.vx, dg.mesh.vy, dg.mesh.vz, plot_config['all_mesh_edges'])
+        # Desenha as faces do elemento
+        plot_element_faces(ax, element_vertices, face_color='gold', alpha=plot_config['alpha'])
+        # Desenha os nós, destacando os da interface
+        plot_dg_nodes(ax, node_coords_k, node_ids_k, highlight_nodes=plot_config['nodes_to_highlight'])
+        # Adiciona o rótulo do elemento
+        plot_element_label(ax, element_vertices, k)
+        # Configura os eixos
+        setup_plot_axes(ax, plot_config['domain_limits'])
+        if layout == 'separated':
+            ax.set_title(f"Elemento {k}", fontsize=10)
+
+    # 5. Limpar e finalizar o plot
+    if layout == 'separated':
+        for j in range(len(elements_to_plot), len(axes)):
+            axes[j].axis('off')
+
+    legend_patch = Patch(facecolor='magenta', edgecolor='black', label=f'Nós na Interface (Grupo {group_id})')
+    fig.legend(handles=[legend_patch], loc='upper right')
+    plt.tight_layout(rect=[0, 0, 0.9, 0.95])
+
+
+def plot_element_faces(ax, element_vertices, face_color='cyan', alpha=0.2):
+    """Desenha as faces de um elemento tetraédrico."""
+    faces_indices = [[0, 1, 2], [0, 1, 3], [0, 2, 3], [1, 2, 3]]
+    faces_verts = [[element_vertices[i] for i in face] for face in faces_indices]
+    poly = Poly3DCollection(faces_verts, facecolor=face_color, edgecolor='k', alpha=alpha)
+    ax.add_collection3d(poly)

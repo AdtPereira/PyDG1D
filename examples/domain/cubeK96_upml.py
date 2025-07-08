@@ -10,7 +10,7 @@ if __name__ == "__main__":
     L = 1.0                         # Largura da camada da PML
     h = 4.0                         # Tamanho máximo do elemento da malha
     Lx = 2.0                        # Dimensão total do domínio na direção x
-    x0 = Lx - L                     # semi-lados do retângulo interno - Domínio Físico
+    x0 = 1.0                        # semi-lados do retângulo interno - Domínio Físico
 
     # 1. Inicializa o GMSH
     gmsh.initialize()
