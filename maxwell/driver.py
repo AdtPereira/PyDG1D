@@ -114,10 +114,10 @@ class MaxwellDriver:
         # 1. Calcula os campos da fonte para o instante de tempo 't'
         #    Esta chamada usa a arquitetura que já estabelecemos, onde 'sp'
         #    tem uma referência para a função da fonte.
-        corrections = self.sp.fieldsOnInterface(t)
+        # corrections = self.sp.fieldsOnInterface(t)
 
         # 2. Armazena as correções como um estado temporário em 'sp'
-        self.sp.set_current_source_corrections(corrections)
+        # self.sp.set_current_source_corrections(corrections)
 
         # 3. Executa o passo do integrador temporal (usando o dt interno).
         #    A chamada ao 'timeIntegrator.step' é a mesma que no método step() original.

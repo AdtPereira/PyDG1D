@@ -9,7 +9,7 @@ ESTE SCRIPT UTILIZA CAMINHOS ABSOLUTOS E NÃO ALTERA O DIRETÓRIO DE TRABALHO
 EXECUÇÃO:
 cd C:\\git\\PyDG1D
 conda activate pyDG1D
-python examples\\hesthaven\\3D_cavity.py
+python examples\\hesthaven\\cavity_cubeK6.py
 
 ══════════════════════════════════════════════════════════════════════════
 
@@ -89,23 +89,34 @@ MATDATA = loadmat('C:\git\PyDG1D\examplesData\inputs\hesthaven_3D\dados.mat')
 BOUNDARY = [{'tag': 101, 'type': 'Dirichlet', 'value': 0.0, 'name': 'Ez_0'}]
 MATERIAL = [{'tag': 201, 'name': 'free_space', 'relative_magnetic_permeability': 1, 'relative_electric_permittivity': 1}]   
 INFO_GRAPH = {'cell': False, 'nodes': False, 'edges': False, 'edges_numb': False, 'filepath': 'examplesData/inputs/hesthaven/3D_cavity/3D_cavity.svg'}
+
 PROBLEM = {
     'DIM': 3,
-    'name': '3D_cavity',
-    'folder_name': 'hesthaven',
-    'description': 'Teste de convergência do esquema DGTD tridimensional TMz.',
-    'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
-    'flux_type': 'Centered',    # 'Upwind' or 'Centered'
-    't0': 0.0,                  # Tempo inicial
-    'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
-    'm': 1,                     # Número de modo
-    'n': 1,                     # Número de modo
-    'L': 1,                     # Dimensão total do domínio
-    'n_order': 3,               # Ordem de interpolação polinomial
+    'description': 'Teste do esquema DGTD-Maxwell 3D.',
+    'name': 'cavity_cubeK6',
+    'folder': 'cem_5',
+    'm': 1,                         # Número de modo
+    'n': 1,                         # Número de modo
+    'dg': {
+        'n_order': 3,               # Ordem de interpolação polinomial
+        'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
+        'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
+        'bc': "PEC",                # Condição de contorno: 'PEC', 'SMA'  or 'Periodic
+        't0': 0.0,                  # Tempo inicial
+        't_final': 10.0,            # Tempo final da simulação
+    },
+    'domain': {
+        'type': 'cubic',            # Tipo de domínio: 'rectangle' ou 'cubic'
+        'h': 4.0,                   # Tamanho máximo do elemento da malha
+        'Lx': 1.0,                  # Semi-lados do retângulo externo (domínio total)
+        'Ly': 1.0,                  # Dimensão total do domínio na direção y
+        'Lz': 1.0,                  # Dimensão total do domínio na direção z
+        'GID_TFZ': 1,               # Grupo físico para a Total Field Zone (TFZ)
+    },
 }
 
 
-def single_test_validation(PROBLEM) -> None:
+def single_test_validation(problem) -> None:
     """
     Testa a solução numérica comparando com a solução analítica.
 
@@ -122,18 +133,18 @@ def single_test_validation(PROBLEM) -> None:
     -------
     None
     """
-    sa = ResonantCavity3D(PROBLEM)
+    sa = ResonantCavity3D(problem)
     
     # 1. Criar a malha retangular com Gmsh
     gmsh.initialize()
     mesh_cubeK6()
-    EToV = get_EToV(dim=PROBLEM['DIM'], index_based=0)
-    VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=PROBLEM['DIM']))
+    EToV = get_EToV(dim=problem['DIM'], index_based=0)
+    VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=problem['DIM']))
     # gmsh.fltk.run()
     gmsh.finalize()
 
     # 2. Criar o objeto Mesh3D 
-    mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=PROBLEM['bc'])
+    mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=problem['dg']['bc'])
     mesh.plot_mesh(title="mesh_cubeK6.msh", show_vertices=True, alpha=0.15)
     EToE, EToF = mesh.connectivityMatrices()
     plot_cubeK6_mesh(VX, VY, VZ, EToV)
@@ -145,7 +156,7 @@ def single_test_validation(PROBLEM) -> None:
     print(f"\nConectividade elemento a face (EToF):\n{EToF}") 
 
     # 3. Definir a discretização espacial usando DG3D
-    sp = Maxwell3D(n_order=PROBLEM['n_order'], mesh=mesh, fluxType=PROBLEM['flux_type'])
+    sp = Maxwell3D(n_order=problem['dg']['n_order'], mesh=mesh, fluxType=problem['dg']['flux_type'])
     print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}, {sp.mesh.number_of_elements()} elementos e {sp.number_of_nodes_per_element()} pontos por elemento.")
 
     # 4. Coordenadas físicas dos nós (Np x K)
@@ -187,9 +198,7 @@ def single_test_validation(PROBLEM) -> None:
     # Plot da solução ANALÍTICA
     xi, yi, zi, ezi_dg = sp.interpolate_dg_solution(Ez, resolution=12)
     ezi_analytical = sa.Ez_field(xi, yi, zi, t=np.zeros_like(ezi_dg))
-    sa.plot_field(x_i=xi, y_i=yi, z_i=zi, field_data=ezi_analytical,
-        title=f"Solução Analítica em t={PROBLEM['t0']:.1f}s"
-    )
+    sa.plot_field(xi, yi, zi, ezi_analytical, title=f"Solução Analítica em t={sa.t_final:.1f}s")
 
     print("\n🔍 Verificando equivalência dos resultados Python e MATLAB ...")
     RTOL = 1e-10
@@ -298,7 +307,6 @@ def L2_error_study(PROBLEM):
 
     # Configurações comuns
     sa = ResonantCavity3D(PROBLEM)
-    t_final = sa.t_final
     n_list = [4, 6, 8, 10]
     flux_types = ['Upwind', 'Centered']
     all_results = {flux: {} for flux in flux_types}
@@ -312,16 +320,16 @@ def L2_error_study(PROBLEM):
 
     # 2. Loop sobre tipo de fluxo
     for flux_type in flux_types:
-        PROBLEM['flux_type'] = flux_type
+        PROBLEM['dg']['flux_type'] = flux_type
 
         # 3. Loop sobre ordens polinomiais
         for n in n_list:
             print(f"\n▶️ Rodando simulação com N={n}, fluxo={flux_type}")
 
             # Criar malha e solver
-            mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=PROBLEM['bc'])
+            mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=PROBLEM['dg']['bc'])
             sp = Maxwell3D(n_order=n, mesh=mesh, fluxType=flux_type)
-            driver = MaxwellDriver(sp, CFL=PROBLEM['cfl'])
+            driver = MaxwellDriver(sp, CFL=PROBLEM['dg']['cfl'])
 
             # Condição inicial
             driver['Ez'][:] = sa.Ez_field(sp.x, sp.y, sp.z, 0)
@@ -332,7 +340,7 @@ def L2_error_study(PROBLEM):
             t = 0.0
 
             # Loop no tempo
-            for _ in range(int(t_final / driver.dt)):
+            for _ in range(int(sa.t_final / driver.dt)):
                 error_data['time'].append(t)
 
                 for field_name, analytical_fn in analytical_fields.items():

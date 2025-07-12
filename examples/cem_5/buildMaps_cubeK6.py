@@ -74,7 +74,6 @@ from maxwell.dg.dg3d import *
 from maxwell.driver import *
 from maxwell.utils import *
 from maxwell.integrators.LSERK4 import *
-from maxwell.spectralAnalyzer import ResonantCavity3D
 
 from mesher.create_mesh import *
 from mesher.plot_mesh import *
@@ -82,19 +81,25 @@ from mesher.plot_mesh import *
 
 PROBLEM = {
     'DIM': 3,
-    'description': 'Teste de convergência do esquema DGTD tridimensional TMz.',
-    'name': 'buildMaps_cubeK6',
+    'description': 'Teste da UPML do esquema DGTD tridimensional.',
+    'name': 'upml',
     'folder': 'cem_5',
-    'bc': "PEC",                # Condição de contorno: 'PEC'  or 'Periodic
-    'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
-    't0': 0.0,                  # Tempo inicial
-    'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
-    'm': 1,                     # Número de modo
-    'n': 1,                     # Número de modo
-    'L': 1,                     # Dimensão total do domínio
-    'n_order': 1,               # Ordem de interpolação polinomial
+    'dg': {
+        'n_order': 1,               # Ordem de interpolação polinomial
+        'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
+        'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
+        'bc': "SMA",                # Condição de contorno: 'PEC', 'SMA'  or 'Periodic
+        't_final': 10.0,            # Tempo final da simulação
+    },
+    'domain': {
+        'type': 'cubic',            # Tipo de domínio: 'rectangle' ou 'cubic'
+        'h': 4.0,                   # Tamanho máximo do elemento da malha
+        'Lx': 1.0,                  # Semi-lados do retângulo externo (domínio total)
+        'Ly': 1.0,                  # Dimensão total do domínio na direção y
+        'Lz': 1.0,                  # Dimensão total do domínio na direção z
+        'GID_TFZ': 1,               # Grupo físico para a Total Field Zone (TFZ)
+    },
 }
-
 
 def single_test_validation(PROBLEM) -> None:
     """
@@ -113,8 +118,6 @@ def single_test_validation(PROBLEM) -> None:
     -------
     None
     """
-    sa = ResonantCavity3D(PROBLEM)
-    
     # 1. Criar a malha cúbica com dimensão L com Gmsh
     gmsh.initialize()
     mesh_cubeK6()
@@ -124,28 +127,28 @@ def single_test_validation(PROBLEM) -> None:
     gmsh.finalize()
 
     # 2. Criar o objeto Mesh3D 
-    mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=PROBLEM['bc'])
+    mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=PROBLEM['dg']['bc'])
 
     # 3. Plotar a malha de diferentes formas
     print("\n🔎 Plotando a malha cúbica K6...")
-    # mesh.plot_mesh(title="mesh_cubeK6.msh", show_vertices=True, alpha=0.15)
-    # plot_cubeK6_mesh(VX, VY, VZ, EToV)
-    # plot_local_cubeK6_mesh(VX, VY, VZ, EToV)
+    mesh.plot_mesh(title="mesh_cubeK6.msh", show_vertices=True, alpha=0.15)
+    plot_cubeK6_mesh(VX, VY, VZ, EToV)
+    plot_local_cubeK6_mesh(VX, VY, VZ, EToV)
 
     print(f"\nMalha criada com {mesh.number_of_vertices()} vértices e {mesh.number_of_elements()} elementos.")
 
     # 3. Definir a discretização espacial usando DG3D
-    sp = Maxwell3D(n_order=PROBLEM['n_order'], mesh=mesh, fluxType=PROBLEM['flux_type'])
+    sp = Maxwell3D(n_order=PROBLEM['dg']['n_order'], mesh=mesh, fluxType=PROBLEM['dg']['flux_type'])
     print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}, {sp.mesh.number_of_elements()} elementos e {sp.number_of_nodes_per_element()} pontos por elemento.")
 
     # 4. Estruturas de Dados DG-FEM
     print(f"\n vmapM (Dim: {sp.vmapM.shape}): \n", sp.vmapM)
     vmapM_3D = sp.vmapM.reshape((sp.n_fp, sp.n_faces, sp.mesh.number_of_elements()), order='F')
-    print_3d_matrices(vmapM_3D, title="vmapM")
+    display_3d_matrices(vmapM_3D, title="vmapM")
 
     print(f"\n vmapP (Dim: {sp.vmapP.shape}): \n", sp.vmapP)
     vmapP_3D = sp.vmapP.reshape((sp.n_fp, sp.n_faces, sp.mesh.number_of_elements()), order='F')
-    print_3d_matrices(vmapP_3D, title="vmapP")
+    display_3d_matrices(vmapP_3D, title="vmapP")
 
     print(f"\n vmapB (Dim: {sp.vmapB.shape}): \n", sp.vmapB)
     print(f"\n mapB (Dim: {sp.mapB.shape}): \n", sp.mapB)

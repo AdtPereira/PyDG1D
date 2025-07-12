@@ -85,7 +85,7 @@ PROBLEM = {
     'name': 'upml',
     'folder': 'cem_5',
     'dg': {
-        'n_order': 4,               # Ordem de interpolação polinomial
+        'n_order': 3,               # Ordem de interpolação polinomial
         'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
         'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
         'bc': "SMA",                # Condição de contorno: 'PEC', 'SMA'  or 'Periodic
@@ -93,7 +93,7 @@ PROBLEM = {
     },
     'domain': {
         'type': 'cubic',            # Tipo de domínio: 'rectangle' ou 'cubic'
-        'h': 1.0,                   # Tamanho máximo do elemento da malha
+        'h': 2.0,                   # Tamanho máximo do elemento da malha
         'Lx': 2.0,                  # Dimensão total do domínio na direção x
         'Ly': 2.0,                  # Dimensão total do domínio na direção y
         'Lz': 2.0,                  # Dimensão total do domínio na direção z
@@ -155,6 +155,7 @@ def spatial_discretization(problem):
 
     # 4. Criar os perfis de condutividade da PML
     sp.sgm_x, sp.sgm_y, sp.sgm_z = sp.upml_sigma_fields(x=sp.x, y=sp.y, z=sp.z, problem=problem)
+    sa.plot_sigma_fields(sp.x, sp.y, sp.z, sp.sgm_x, sp.sgm_y, sp.sgm_z, title="Perfis de Condutividade da PML")
 
     print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}, {sp.mesh.number_of_elements()} elementos e {sp.number_of_nodes_per_element()} pontos por elemento.")
 

@@ -19,14 +19,16 @@ from maxwell.utils import *
 
 
 PROBLEM = {'name': 'single_conductor',
-    'folder_name': 'single_conductor',
+    'folder': 'single_conductor',
     'description': 'Análise espectral de um pulso gaussiano propagante em 2D',
-    'flux_type': 'Upwind',  # 'Upwind' or 'Centered'
-    'bc': "PEC",            # Condição de contorno do problema: Perfect Electric Conductor (PEC)
-    'cfl': 1,               # Número de Courant-Friedrichs-Lewy
-    'n_order': 3,           # Ordem polinomial dos elementos
-    't_final': 6e-6,        # Tempo final da simulação
     'num_snapshots': 9,     # Número de snapshots a serem coletados
+    'dg': {
+        'n_order': 3,               # Ordem de interpolação polinomial
+        'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
+        'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
+        'bc': "PEC",                # Condição de contorno: 'PEC', 'SMA'  or 'Periodic
+        't_final': 1e-5,            # Tempo final da simulação
+    },
     'domain': {
         'type': 'rectangle',    # Tipo de domínio: 'rectangle' ou 'circle'
         'Lx': 2.0,              # Largura do domínio físico na direção x
@@ -55,8 +57,8 @@ class SpectralAnalyzer:
     def __init__(self, problem, mesh):
         self.problem = problem
         self.mesh = mesh
-        self.t_final = problem['t_final']
-        self.t_list = np.linspace(0, problem['t_final'], problem['num_snapshots'])
+        self.t_final = problem['dg']['t_final']
+        self.t_list = np.linspace(0, self.t_final, problem['num_snapshots'])
 
 
     def gaussian_pulse(self, x, y, t):
@@ -109,7 +111,7 @@ class SpectralAnalyzer:
             Número de amostras para a série temporal. Default: 2**14.
         """
         sigma_t = PROBLEM['source']['sigma_t']  # Desvio padrão temporal do pulso gaussiano
-        t_max = PROBLEM['t_final']  # Tempo final da simulação
+        t_max = PROBLEM['dg']['t_final']  # Tempo final da simulação
         num_samples = 2**14         # Número de amostras para a série temporal
 
         # 2. Configurar o vetor de tempo para a análise
@@ -169,7 +171,7 @@ class SpectralAnalyzer:
         """
         VX, VY, EToV = self.mesh.vx, self.mesh.vy, self.mesh.EToV
         K = EToV.shape[0]
-        N = self.problem['n_order']
+        N = self.problem['dg']['n_order']
 
         x_nodes, y_nodes = nodes_coordinates(N, self.mesh)
         markers = ['o', 's', '^', 'D', 'v', '>', '<', 'p', '*', 'h', 'X']
@@ -290,10 +292,10 @@ class SpectralAnalyzer:
         rc = self.problem['domain']['rc']
 
         print("\n🚀 Iniciando simulação para monitorar Ez no eixo x ...")
-        driver = MaxwellDriver(sp, CFL=self.problem['cfl'])
+        driver = MaxwellDriver(sp, CFL=self.problem['dg']['cfl'])
         driver['Ez'][:] = sa.gaussian_pulse(sp.x, sp.y, 0)
 
-        print(f"\n🌐 Inicializando o driver Maxwell com CFL = {self.problem['cfl']} e dt = {driver.dt} s")
+        print(f"\n🌐 Inicializando o driver Maxwell com CFL = {self.problem['dg']['cfl']} e dt = {driver.dt} s")
         ez_snapshots = []
         for t in self.t_list:
             driver.run_until(t)
@@ -346,7 +348,7 @@ class SpectralAnalyzer:
             ax.axvspan(-rc, rc, color='orange', alpha=0.3, zorder=0)
 
             ax.plot(x_line, ez_data, color='dodgerblue')
-            ax.set_title(f"t = {t} s", fontsize=10)
+            ax.set_title(f"t = {t:.2e} s", fontsize=10)
             ax.grid(True, linestyle='--', alpha=0.6)
             ax.set_ylim(y_limits)
 
@@ -457,7 +459,7 @@ class SpectralAnalyzer:
         Monitors and plots the electric field Ez at the PML interface (x=1, y=0) over time.
         """
         # 1. Inicializar o campo elétrico Ez 
-        driver = MaxwellDriver(sp, CFL=PROBLEM['cfl'])
+        driver = MaxwellDriver(sp, CFL=PROBLEM['dg']['cfl'])
         driver['Ez'][:] = self.gaussian_pulse(sp.x, sp.y, 0)
 
         # Find the node closest to (x=1, y=0)
@@ -568,16 +570,16 @@ def single_conductor_case(problem, h):
         vx=mesh_data['VX'],
         vy=mesh_data['VY'],
         EToV=mesh_data['EToV'],
-        boundary_label=problem['bc'])
+        boundary_label=problem['dg']['bc'])
 
     # Aplicar condutividade do condutor circular central
-    x_nodes, y_nodes = nodes_coordinates(problem['n_order'], mesh_domain)
-    sigma_core = apply_conductivity(x_nodes, y_nodes, problem['domain']['rc'], sigma_condutor=1E1)
+    x_nodes, y_nodes = nodes_coordinates(problem['dg']['n_order'], mesh_domain)
+    sigma_core = apply_conductivity(x_nodes, y_nodes, problem['domain']['rc'], sigma_condutor=10)
 
     sp = Maxwell2D(
-        n_order=problem['n_order'],
+        n_order=problem['dg']['n_order'],
         mesh=mesh_domain,
-        fluxType=problem['flux_type'],
+        fluxType=problem['dg']['flux_type'],
         sigma=sigma_core,
         pml_design=problem['pml'])
 
@@ -595,10 +597,11 @@ def main() -> None:
     sa = SpectralAnalyzer(PROBLEM, mesh_domain)
     
     sa.plot_source_spectrum()    
-    # sa.plot_collocation_points()
-    # sa.plot_conductivity_map(sp)
+    sa.plot_collocation_points()
+    sa.plot_conductivity_map(sp)
     sa.plot_field_evolution_on_x_axis(sa, sp)
-    # sa.transient_analysis(sp)
+    # a.transient_analysis(sp)
+
 
 if __name__ == '__main__':
     main()

@@ -99,7 +99,9 @@ PROBLEM = {
         'Lx': 3.0,                  # Semi-lados do retângulo externo (domínio total)
         'Ly': 3.0,                  # Dimensão total do domínio na direção y
         'Lz': 3.0,                  # Dimensão total do domínio na direção z
-        'GID_TFZ': 1,               # Grupo físico para a Total Field Zone (TFZ)
+    },
+    'physical_groups': {
+        'TFZ': {'name': 'Total Field Zone', 'id': 1},
     },
     'pml': {
         'type': 'uniaxial', 
@@ -133,61 +135,79 @@ def spatial_discretization(problem):
     -------
     None
     """
-    # Definição da classe PlaneWaveExcitation
-    sa = PlaneWaveExcitation(problem)    
+    # 1. Criar o objeto PlaneWaveExcitation
+    sa = PlaneWaveExcitation(problem)   
 
-    # 1. Criar a malha cúbica com dimensão L com Gmsh
+    # 1. Criar a malha cúbica com Gmsh
     gmsh.initialize()
     mesh_cubeK252_tfsf(problem)
     EToV = get_EToV(dim=problem['DIM'], index_based=0)
-    VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=problem['DIM']))
-    # gmsh.fltk.run()
+    vx, vy, vz = extract_VX_VY_VZ(get_nodes_data(dim=problem['DIM']))
+    gmsh.fltk.run()
     gmsh.finalize()
 
-    # 2. Criar o objeto Mesh3D 
-    mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=problem['dg']['bc'])
-    print(f"\nMalha criada com {mesh.number_of_vertices()} vértices e {mesh.number_of_elements()} elementos.")    
-
-    # 3. Plotar a malha com os ids dos pontos de colocação
-    print("\n🔎 Plotando a malha cúbica K252...")
-    # mesh.plot_mesh(title="mesh_cubeK254.msh", show_vertices=True, alpha=0.15)
-
-    # 4. Criar grupos físicos na malha
-    print("\n🔎 Criando grupos físicos na malha cúbica K252...")
-    # Criar grupo físico cúbico TFZ de dimensão 2*xa
-    # GID_TFZ = 1 -> Grupo 'TFZ'
-    mesh.box_physical_group(
-        group_tag=problem['domain']['GID_TFZ'],
-        group_name="TFZ",
-        half_dim=(sa.xa, sa.xa, sa.xa),
-        center=(0.0, 0.0, 0.0),
-        group_info=True
-    )
-
-    # 5. Definir a discretização espacial usando DG3D
-    sp = Maxwell3D(
-        n_order=problem['dg']['n_order'],
-        mesh=mesh,
-        fluxType=problem['dg']['flux_type'])
-
-    # 6. Criar os perfis de condutividade da PML
-    sp.sgm_x, sp.sgm_y, sp.sgm_z = sp.upml_sigma_fields(x=sp.x, y=sp.y, z=sp.z, problem=problem)
-
-    # 7. Configura os IDs dos grupos para que 'fieldsOnInterface' saiba qual mapa usar
-    # Criar a região de interface para formulação TF/SF entre os grupos 0 e 1
-    sp.tfz_group_id = problem['domain']['GID_TFZ']
-    sp.sf_group_id = problem['domain']['GID_PML']
-    sp.buildInterfaceMaps()
-
-    print("\n🔎 Verificando graficamente a interface TF/SF...")
-    # sa.plot_interface_nodes(sp, title="Nós da Interface TF/SF (Lado do Campo Espalhado)")
-
-    # --- INJEÇÃO DA FUNÇÃO DA FONTE ---
-    sp.set_incident_wave_function(sa.get_incident_fields)   
+    # 2. Criar o objeto de malha Mesh3D
+    mesh = Mesh3D(vx, vy, vz, EToV, boundary_label=problem['dg']['bc'])
+    # mesh.plot_mesh(title="mesh_cubeK252.msh", show_vertices=True, alpha=0.15)
+    print(f"\nMalha criada com {mesh.number_of_vertices()} vértices e {mesh.number_of_elements()} elementos.")  
     
-    print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}, {sp.mesh.number_of_elements()} elementos e {sp.number_of_nodes_per_element()} pontos por elemento.")
+    # 3. Criar grupo físico cúbico TFZ de dimensão total 2*xa
+    mesh.box_physical_group(
+        group_tag=problem['physical_groups']['TFZ']['id'],
+        group_name=problem['physical_groups']['TFZ']['name'],
+        half_dim=(sa.xa, sa.xa, sa.xa), center=(0.0, 0.0, 0.0), group_info=True)
 
-    return sa, sp
+    # 4. Criar a discretização espacial do problema 
+    dg = Maxwell3D(problem['dg']['n_order'], mesh, problem['dg']['flux_type'])
+    print(f"\n🔎 Discretização espacial criada com ordem {dg.n_order}...")
+    print(f"{dg.mesh.number_of_elements()} elementos totais, {dg.count_boundary_elements()} elementos de borda e {dg.number_of_nodes_per_element()} pontos por elemento.")
+
+    # 5. Criar os perfis de condutividade da PML
+    dg.sgm_x, dg.sgm_y, dg.sgm_z = dg.upml_sigma_fields(dg.x, dg.y, dg.z, problem)
+
+    # 6. Criar a região de interface para formulação TF/SF entre os grupos 0 e 1
+    dg.buildGroupInterfaceMaps()
+
+    # 7. Injeção da fonte de onda plana
+    print("\n🔎 Injetando a fonte de onda plana na discretização espacial...")
+    dg.set_incident_wave_function(sa.get_incident_fields)
+
+    return sa, dg
+
+
+def dg_data_structures(dg, elements_to_show):
+    print(f"\n🔎 Estruturas de dados da malha para os elementos {elements_to_show}...")    
+    display_format_matrix(dg.mesh.EToV, title="EToV", elements=elements_to_show)    
+    display_format_matrix(dg.EToE, title="EToE", elements=elements_to_show)
+    display_format_matrix(dg.EToF, title="EToF", elements=elements_to_show)
+
+    print(f"\nEToG (Dim: {dg.mesh.EToG.shape}): \n", dg.mesh.EToG)
+
+    vmapM_3D = dg.vmapM.reshape((dg.n_fp, dg.n_faces, dg.mesh.number_of_elements()), order='F')
+    vmapP_3D = dg.vmapP.reshape((dg.n_fp, dg.n_faces, dg.mesh.number_of_elements()), order='F')
+    vmapI_3D = dg.vmapI.reshape((dg.n_fp, dg.n_faces, dg.mesh.number_of_elements()), order='F')
+
+    display_3d_matrices(vmapM_3D, elements=elements_to_show, title=f"vmapM (Dim: {vmapM_3D.shape})")
+    display_3d_matrices(vmapP_3D, elements=elements_to_show, title=f"vmapP (Dim: {vmapP_3D.shape})")
+    display_3d_matrices(vmapI_3D, elements=elements_to_show, title=f"vmapI (Dim: {vmapI_3D.shape})")
+
+    print(f"\n vmapB (Dim: {dg.vmapB.shape}): \n", dg.vmapB)
+    print(f"\n vmapIM (Dim: {dg.vmapIM.shape}): \n", dg.vmapIM)
+    print(f"\n vmapIP (Dim: {dg.vmapIP.shape}): \n", dg.vmapIP)
+    print(f"\n mapB (Dim: {dg.mapB.shape}): \n", dg.mapB)   
+    print(f"\n mapI (Dim: {dg.mapI.shape}): \n", dg.mapI)
+    
+    assert np.array_equal(dg.vmapM[dg.mapI], dg.vmapIM)
+    assert np.array_equal(dg.vmapP[dg.mapI], dg.vmapIP)
+    
+    print(f"\n vmapIM_G1 (Dim: {dg.vmapIM_G1.shape}): \n", dg.vmapIM_G1)
+    print(f"\n vmapIP_G1 (Dim: {dg.vmapIP_G1.shape}): \n", dg.vmapIP_G1)
+    print(f"\n vmapIM_G0 (Dim: {dg.vmapIM_G0.shape}): \n", dg.vmapIM_G0)
+    print(f"\n vmapIP_G0 (Dim: {dg.vmapIP_G0.shape}): \n", dg.vmapIP_G0)
+
+    plot_interface_nodes(dg)
+    plot_interface_elements(dg, group_id=0, partner_group_id=1, layout='combined')
+    plot_interface_elements(dg, group_id=1, partner_group_id=0, layout='combined')
 
 
 def plot_probe_comparison(probe_data, probe_coords):
@@ -202,13 +222,9 @@ def plot_probe_comparison(probe_data, probe_coords):
         As coordenadas (x,y,z) do ponto da sonda, para o título do gráfico.
     """
     fig, ax = plt.subplots(figsize=(12, 7), dpi=100)
-
-    # Plot da solução analítica (linha tracejada preta)
-    ax.plot(probe_data['time'], probe_data['Ez'], 'k--', label='Solução Analítica ($E_z$)', linewidth=2)
+    ax.plot(probe_data['time'], probe_data['Ezh'], 'b-o', label='$E_{zh}$ (DG-FEM)', markersize=2, markeredgecolor='k', markerfacecolor='b', linewidth=1)
+    ax.plot(probe_data['time'], probe_data['Ez'], 'k--', label='$E_z$', linewidth=1)
     
-    # Plot da solução numérica (linha azul com marcadores)
-    ax.plot(probe_data['time'], probe_data['Ezh'], 'b-o', label='Solução Numérica ($E_{zh}$)', markersize=3, markeredgecolor='k', markerfacecolor='b')
-
     # Configurações do gráfico
     title_coords = f"({probe_coords[0]:.2f}, {probe_coords[1]:.2f}, {probe_coords[2]:.2f})"
     ax.set_title(fr'$E_z(x,y,z,t)$ @ {title_coords}', fontsize=12)
@@ -220,12 +236,16 @@ def plot_probe_comparison(probe_data, probe_coords):
     plt.tight_layout()
 
 
-def test_point_probe(problem, sa, sp) -> None:
+def test_point_probe(problem, sa, dg) -> None:
     """
     Testa a solução numérica comparando com a solução analítica.
     (Versão corrigida para lidar com a estrutura de dados 2D do DG-FEM)
     """
-    driver = MaxwellDriver(sp, CFL=problem['dg']['cfl']) 
+    driver = MaxwellDriver(dg, CFL=problem['dg']['cfl']) 
+
+    # Campo incidente na condição inicial
+    sa.plot_incident_fields(dg, group_id_A=0, group_id_B=1, t=0.0)
+
     # driver['Ez'][:] = sa.incident_Ey(sp.x, sp.y, sp.z, t=0.0)
     # driver['Hz'][:] = sa.incident_Hz(sp.x, sp.y, sp.z, t=0.0)
 
@@ -234,18 +254,18 @@ def test_point_probe(problem, sa, sp) -> None:
     
     # --- INÍCIO DA SONDA ---    
     probe = (0.2, 0.0, 0.2)
-    distances = np.sqrt((sp.x - probe[0])**2 + (sp.y - probe[1])**2 + (sp.z - probe[2])**2)
+    distances = np.sqrt((dg.x - probe[0])**2 + (dg.y - probe[1])**2 + (dg.z - probe[2])**2)
     flat_probe_index = np.argmin(distances)
-    node_idx, elem_idx = np.unravel_index(flat_probe_index, sp.x.shape)
+    node_idx, elem_idx = np.unravel_index(flat_probe_index, dg.x.shape)
 
     # Inicializar uma estrutura de dados da sonda
     probe_data = {'time': [], 'Ezh': [], 'Hzh': [], 'Ez': [], 'Hz': []}
     print(f"\n🔎 Sonda pontual inserida no elemento {elem_idx}, nó local {node_idx}.")
     print(f"Coordenadas do ponto da sonda: {probe}")
-    print(f"Coordenadas do nó mais próximo: ({sp.x[node_idx, elem_idx]:.3f}, {sp.y[node_idx, elem_idx]:.3f}, {sp.z[node_idx, elem_idx]:.3f})")
+    print(f"Coordenadas do nó mais próximo: ({dg.x[node_idx, elem_idx]:.3f}, {dg.y[node_idx, elem_idx]:.3f}, {dg.z[node_idx, elem_idx]:.3f})")
 
     # Coordenadas numéricas do ponto da sonda
-    probe = (sp.x[node_idx, elem_idx], sp.y[node_idx, elem_idx], sp.z[node_idx, elem_idx])
+    probe = (dg.x[node_idx, elem_idx], dg.y[node_idx, elem_idx], dg.z[node_idx, elem_idx])
 
     # --- INICIO DO SOLVER DG-FEM ---
     t_dg = 0.0
@@ -253,10 +273,6 @@ def test_point_probe(problem, sa, sp) -> None:
     print(f"\n🚀 Marchando no tempo com passo dt = {driver.dt:.3f}s...")
     print(f"⏳ Tempo final: {sa.t_final:.3f}s.")
     print(f"⏳ Número de passos de tempo: {N_steps}.")
-
-    # Remova a chamada redundante para fieldsOnInterface daqui
-    # corrections = sp.fieldsOnInterface(t_dg) 
-    # sa.plot_incident_fields(sp, t_dg)
 
     for _ in range(N_steps):
         # 1. Adiciona o tempo à lista de dados da sonda no início da iteração.
@@ -266,8 +282,8 @@ def test_point_probe(problem, sa, sp) -> None:
         # 2. Coleta os dados do erro L2 para este instante de tempo
         for field_name, analytical_fn in analytical_fields.items():
             uh = driver[field_name]
-            ua = analytical_fn(sp.x, sp.y, sp.z, t_dg)
-            l2_error = sp.compute_L2_error(uh, ua)
+            ua = analytical_fn(dg.x, dg.y, dg.z, t_dg)
+            l2_error = dg.compute_L2_error(uh, ua)
             error_data['L2_error'][field_name].append(l2_error)            
         
         # 3. Coleta os dados numéricos e analíticos da sonda
@@ -284,7 +300,7 @@ def test_point_probe(problem, sa, sp) -> None:
     plot_probe_comparison(probe_data, probe)
 
 
-def verify_data(sa, sp):
+def compare_fbp_data(sa, dg):
     """
     Testa a solução numérica comparando com a solução analítica.
 
@@ -303,39 +319,37 @@ def verify_data(sa, sp):
     """
 
     # Verificação dos dados da malha
-    assert np.array_equal(sp.mesh.EToV, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\EToV.npy")), "Erro: EToV."
-    assert np.array_equal(sp.mesh.vx, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\VX.npy")), "Erro: VX."
-    assert np.array_equal(sp.mesh.vy, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\VY.npy")), "Erro: VY."
-    assert np.array_equal(sp.mesh.vz, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\VZ.npy")), "Erro: VZ."
-    assert np.array_equal(sp.EToE, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\EToE.npy")), "Erro: EToE."
-    assert np.array_equal(sp.EToF, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\EToF.npy")), "Erro: EToF."
+    assert np.array_equal(dg.mesh.EToV, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\EToV.npy")), "Erro: EToV."
+    assert np.array_equal(dg.mesh.vx, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\VX.npy")), "Erro: VX."
+    assert np.array_equal(dg.mesh.vy, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\VY.npy")), "Erro: VY."
+    assert np.array_equal(dg.mesh.vz, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\VZ.npy")), "Erro: VZ."
+    assert np.array_equal(dg.EToE, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\EToE.npy")), "Erro: EToE."
+    assert np.array_equal(dg.EToF, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\EToF.npy")), "Erro: EToF."
     print("\n🚀 Verificação dos dados da malha concluída com sucesso!")
 
     # Verificação dos dados da PML
-    assert np.array_equal(sp.sgm_x, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\sigma_x.npy")), "Erro: sgm_x."
-    assert np.array_equal(sp.sgm_y, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\sigma_y.npy")), "Erro: sgm_y."
-    assert np.array_equal(sp.sgm_z, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\sigma_z.npy")), "Erro: sgm_z."
+    assert np.array_equal(dg.sgm_x, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\sigma_x.npy")), "Erro: sgm_x."
+    assert np.array_equal(dg.sgm_y, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\sigma_y.npy")), "Erro: sgm_y."
+    assert np.array_equal(dg.sgm_z, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\sigma_z.npy")), "Erro: sgm_z."
     print("\n🚀 Verificação dos dados da PML concluída com sucesso!")
 
     # Verificação dos mapas de conexão
-    assert np.array_equal(sp.vmapM, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\vmapM.npy")), "Erro: vmapM."
-    assert np.array_equal(sp.vmapP, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\vmapP.npy")), "Erro: vmapP."
-    assert np.array_equal(sp.vmapB, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\vmapB.npy")), "Erro: vmapB."
-    assert np.array_equal(sp.mapB, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\mapB.npy")), "Erro: mapB."
+    assert np.array_equal(dg.vmapM, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\vmapM.npy")), "Erro: vmapM."
+    assert np.array_equal(dg.vmapP, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\vmapP.npy")), "Erro: vmapP."
+    assert np.array_equal(dg.vmapB, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\vmapB.npy")), "Erro: vmapB."
+    assert np.array_equal(dg.mapB, np.load("C:\\git\\PyDG1D\\examplesData\\outputs\\cem_5\\fpb\\mapB.npy")), "Erro: mapB."
     print("\n🚀 Verificação dos mapas de conexão concluída com sucesso!")
 
-    print(f"\nMáscara de região total, TFZ: Dim: {sp.vmapI_G1.shape} \n{sp.vmapI_G1}")
 
 def main() -> None:
     """Função principal para execução do script."""
     clear_terminal()
-    sa, sp = spatial_discretization(PROBLEM)  
-    verify_data(sa, sp)
-
-    # test_point_probe(PROBLEM, sa, sp)
-    # test_driver_time_march(PROBLEM)
+    sa, dg = spatial_discretization(PROBLEM)  
+    dg_data_structures(dg, elements_to_show=[0])
+    compare_fbp_data(sa, dg)
+    # test_point_probe(PROBLEM, sa, dg)
 
 
 if __name__ == '__main__':
     main()
-    # plt.show()
+    plt.show()

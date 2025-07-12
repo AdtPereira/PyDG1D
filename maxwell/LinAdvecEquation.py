@@ -208,8 +208,8 @@ class Driver1D:
             f"Tempo final, FinalTime: {self.problem['tmax']:.4e}",
             f"Condição de contorno: {self.sp.mesh.boundary_label}",
 
-            format_matrix(self.uh, title=f"DG Solution u_h @ t = {self.problem['tmax']:.2f}"),
-            format_matrix(ua, title=f"Solução Analítica u_a @ t = {self.problem['tmax']:.2f}"),            
+            display_format_matrix(self.uh, title=f"DG Solution u_h @ t = {self.problem['tmax']:.2f}"),
+            display_format_matrix(ua, title=f"Solução Analítica u_a @ t = {self.problem['tmax']:.2f}"),            
             f"\n🌐 Correlação entre solução analítica e numérica: {np.corrcoef(ua, self.uh)[0, 1]:.2f}"
         ]
 

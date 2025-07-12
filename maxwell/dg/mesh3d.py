@@ -109,7 +109,7 @@ class Mesh3D:
             print("Erro: A tag 0 é reservada para o grupo 'Default'. Use outra tag.")
             return np.array([], dtype=int)
             
-        print(f"Atribuindo grupo '{group_name}' (Tag: {group_tag})...")
+        print(f"\n🔎 Atribuindo grupo '{group_name}' (Tag: {group_tag})...")
         min_coords = np.array(center) - half_dim
         max_coords = np.array(center) + half_dim
         
@@ -139,11 +139,11 @@ class Mesh3D:
         # Armazena o nome do novo grupo
         self.group_names[group_tag] = group_name
         
-        print(f"-> {len(elements_to_assign)} elementos foram atribuídos à tag {group_tag}.")
+        print(f"{len(elements_to_assign)} elementos foram atribuídos à tag {group_tag}.")
 
         if group_info:
             # 3. Relatório final usando os novos métodos de acesso
-            print("\n--- Relatório Final de Grupos Físicos ---")
+            print("\n---- Relatório Final de Grupos Físicos ----")
             print("Grupos definidos:", self.group_names)
 
             for tag, name in self.group_names.items():
@@ -233,6 +233,5 @@ class Mesh3D:
         ax.set_zlabel('Z')
         ax.set_title(title)
         
-        plt.show()
     
 

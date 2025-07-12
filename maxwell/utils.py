@@ -24,7 +24,7 @@ def clear_terminal() -> None:
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
-def print_3d_matrices(Matriz3D: np.ndarray, elements: Optional[List[int]] = None, title: str = "") -> None:
+def display_3d_matrices(Matriz3D: np.ndarray, elements: Optional[List[int]] = None, title: str = "") -> None:
     """
     Imprime fatias de vmapM_3D usando DataFrames do pandas para uma exibição elegante.
 
@@ -82,7 +82,7 @@ def print_3d_matrices(Matriz3D: np.ndarray, elements: Optional[List[int]] = None
         print("\nNenhum elemento válido foi encontrado para impressão.")
 
 
-def format_matrix(
+def display_format_matrix(
     matrix: np.ndarray, 
     title: str = "", 
     elements: Optional[List[int]] = None,

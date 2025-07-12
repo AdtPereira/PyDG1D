@@ -22,28 +22,51 @@ from mesher.create_mesh import *
 from maxwell.utils import *
 
 
-PROBLEM = {'name': 'single_conductor',
-    'folder_name': 'single_conductor',
+PROBLEM = {
+    'DIM': 2,                       # Dimensão do problema (2D)
+    'name': 'single_conductor',
+    'folder': 'single_conductor',
     'description': 'Análise espectral de um pulso gaussiano propagante em 2D',
-    'flux_type': 'Upwind',  # 'Upwind' or 'Centered'
-    'bc': "PEC",            # Condição de contorno do problema: Perfect Electric Conductor (PEC)
-    'cfl': 0.1,             # Número de Courant-Friedrichs-Lewy
-    'n_order': 3,           # Ordem polinomial dos elementos
-    't_final': 1.5,         # Tempo final da simulação
-    'num_snapshots': 9,     # Número de snapshots a serem coletados
-    'Lx': 2.0,              # Largura do domínio físico na direção x
-    'Ly': 2.0,              # Largura do domínio físico na direção y
-    'rc': 0.5               # Raio do círculo central (condutor)
+    'num_snapshots': 9,             # Número de snapshots a serem coletados
+    'dg': {
+        'n_order': 3,               # Ordem de interpolação polinomial
+        'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
+        'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
+        'bc': "PEC",                # Condição de contorno: 'PEC', 'SMA'  or 'Periodic
+        't_final': 3.0,             # Tempo final da simulação
+    },
+    'domain': {
+        'type': 'rectangle',    # Tipo de domínio: 'rectangle' ou 'circle'
+        'Lx': 2.0,              # Largura do domínio físico na direção x
+        'Ly': 2.0,              # Largura do domínio físico na direção y
+        'rc': 0.5               # Raio do círculo central (condutor)
+    },
+    'source': {
+        'type': 'gaussian', # Tipo de fonte: 'gaussian' ou 'derivative'
+        'A0': 1.0,          # Amplitude do pulso gaussiano
+        'sigma_r': 0.2,     # Desvio padrão espacial do pulso gaussiano
+        'sigma_t': 2e-7,    # Desvio padrão temporal do pulso gaussiano
+        't0': 1e-6          # Tempo de pico do pulso gaussiano
+    },
+    'pml': {
+        'type': 'Abarbanel and Gottlieb', 
+        'x0': 1.0,          # Fronteira do domínio físico
+        'y0': 1.0,          # Fronteira do domínio físico
+        'L': 1.0,           # Largura da camada da PML
+        'pml_order': 2,     # Ordem polinomial da PML
+        'R': 1E-4           # Coeficiente de reflexão na interface da PML
+    }
 }
 
 
 class SpectralAnalyzer:
     def __init__(self, problem, mesh):
-        self.N = problem['n_order']
-        self.L = 2*problem['Lx']
-        self.t_final = problem['t_final']
-        self.num_snapshots = problem['num_snapshots']
-        self.t_list = np.linspace(0, self.t_final, problem['num_snapshots'])
+        self.N = problem['dg']['n_order']               # Ordem de interpolação polinomial
+        self.L = 2*problem['domain']['Lx']              # Largura do domínio físico
+        self.t_final = problem['dg']['t_final']         # Tempo final da simulação
+        self.num_snapshots = problem['num_snapshots']   # Número de snapshots a serem coletados
+
+        self.t_list = np.linspace(0, self.t_final, self.num_snapshots)
         self.mesh = mesh
 
 
@@ -70,6 +93,79 @@ class SpectralAnalyzer:
         termo_espacial = np.exp(-(x**2 + y**2) / (2 * sigma_r**2))
         termo_temporal = np.exp(-((t - t0)**2) / (2 * sigma_t**2))
         return A0 * termo_espacial * termo_temporal
+
+
+    def plot_source_spectrum(self):
+        """
+        Avalia e plota o espectro de potência em dB, otimizado para a faixa de MHz.
+
+        Esta função usa parâmetros em microssegundos (µs) e exibe os eixos dos gráficos
+        em microssegundos e Megahertz (MHz) para uma análise clara de sinais de
+        baixa frequência.
+
+        Parâmetros:
+        -----------
+        sigma_t_us : float, opcional
+            Desvio padrão temporal (largura) do pulso em MICROSSEGUNDOS (µs).
+            Default: 0.2.
+        simulation_time_us : float, opcional
+            Duração total da simulação no domínio do tempo, em MICROSSEGUNDOS (µs).
+            Default: 6.0.
+        num_samples : int, opcional
+            Número de amostras para a série temporal. Default: 2**14.
+        """
+        sigma_t = PROBLEM['source']['sigma_t']  # Desvio padrão temporal do pulso gaussiano
+        t_max = PROBLEM['dg']['t_final']  # Tempo final da simulação
+        num_samples = 2**14         # Número de amostras para a série temporal
+
+        # 2. Configurar o vetor de tempo para a análise
+        time_vector = np.linspace(0, t_max, num_samples, endpoint=False)
+        dt = time_vector[1] - time_vector[0]
+
+        # 3. Gerar o pulso gaussiano no domínio do tempo
+        pulse_in_time = self.gaussian_pulse(x=0, y=0, t=time_vector)
+
+        # 4. Calcular a FFT e as frequências correspondentes em Hz
+        pulse_in_freq = np.fft.fft(pulse_in_time)
+        frequencies_hz = np.fft.fftfreq(num_samples, d=dt)
+
+        # 5. Focar apenas nas frequências positivas
+        positive_freq_mask = frequencies_hz >= 0
+        freqs_positive_hz = frequencies_hz[positive_freq_mask]
+        magnitude_spectrum = np.abs(pulse_in_freq[positive_freq_mask])
+
+        # 6. Converter a magnitude para potência em decibéis (dB)
+        epsilon = 1e-20
+        max_magnitude = np.max(magnitude_spectrum)
+        if max_magnitude > epsilon:
+            power_db = 20 * np.log10(magnitude_spectrum / max_magnitude + epsilon)
+        else:
+            power_db = np.full_like(magnitude_spectrum, -np.inf)
+
+        # --- Plotagem dos Resultados ---
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        fig.suptitle(fr'Gaussian $E_z(z,y,t)$ Source ($\sigma_t={1e6*sigma_t:.1f}$ µs, $t_{{max}}$={1e6*t_max} µs)', fontsize=14)
+
+        # Gráfico do Domínio do Tempo (eixo em µs)
+        ax1.plot(time_vector * 1e6, pulse_in_time, color='red')
+        ax1.set_title("Pulso Gaussiano no Domínio do Tempo")
+        ax1.set_xlabel("Tempo (µs)")
+        ax1.set_ylabel("Amplitude")
+        ax1.grid(True, linestyle=':')
+        ax1.set_xlim(0, 1e6*t_max)
+
+        # Gráfico do Espectro de Potência (eixo em MHz)
+        ax2.plot(freqs_positive_hz / 1e6, power_db, color='red', marker='.', markersize=4, linestyle='-')
+        ax2.set_title("Espectro de Potência")
+        ax2.set_xlabel("Frequência (MHz)")
+        ax2.set_ylabel("Potência (dB)")
+        ax2.grid(True, linestyle=':')
+
+        # Ajusta o limite do eixo de frequência para a faixa de MHz
+        freq_cutoff_mhz = (1.5 / sigma_t) / 1e6
+        ax2.set_xlim(0, freq_cutoff_mhz)
+        ax2.set_ylim(-70, 5)
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
 
     def gaussian_pulse_derivative(self, x, y, t, sigma=0.2, amplitude=1.0, c=1.0):
@@ -551,11 +647,11 @@ class SpectralAnalyzer:
         print("\n🚀 Iniciando simulação para monitorar Ez no eixo x (em subplots)...")
 
         # --- Fase de Simulação ---
-        driver = MaxwellDriver(sp, CFL=PROBLEM['cfl'])
+        driver = MaxwellDriver(sp, CFL=PROBLEM['dg']['cfl'])
         driver['Ez'][:] = sa.gaussian_pulse(sp.x, sp.y, 0)
         # driver['Ez'][:] = SpectralAnalyzer.gaussian_pulse_derivative(sp.x, sp.y, 0)
 
-        print(f"\n🌐 Inicializando o driver Maxwell com CFL = {PROBLEM['cfl']:.2f} e dt = {1E3*driver.dt:.1f} ms")
+        print(f"\n🌐 Inicializando o driver Maxwell com CFL = {PROBLEM['dg']['cfl']:.2f} e dt = {1E3*driver.dt:.1f} ms")
 
         ez_snapshots = []
         for t in self.t_list:
@@ -788,10 +884,14 @@ def maxwell_without_conductor(problem, L, h):
         'R': 1E-4,          # Coeficiente de reflexão na interface da PML
     }
 
-    mesh_data = mesh_single_conductor_domain(PROBLEM, pml_project, h, view_mesh=False)
-    mesh_domain = Mesh2D(vx=mesh_data['VX'], vy=mesh_data['VY'], EToV=mesh_data['EToV'], boundary_label=problem['bc'])
+    mesh_data = mesh_single_conductor_domain(problem, h, view_mesh=False)
+    mesh_domain = Mesh2D(
+        vx=mesh_data['VX'],
+        vy=mesh_data['VY'],
+        EToV=mesh_data['EToV'],
+        boundary_label=problem['dg']['bc'])
 
-    sp = Maxwell2D(n_order=problem['n_order'], mesh=mesh_domain, fluxType=problem['flux_type'], sigma=None, pml_design=pml_project)
+    sp = Maxwell2D(n_order=problem['dg']['n_order'], mesh=mesh_domain, fluxType=problem['dg']['flux_type'], sigma=None, pml_design=pml_project)
     return mesh_domain, sp
 
 
@@ -808,14 +908,18 @@ def maxwell_with_conductor(problem, L, h):
         'R': 1E-4,          # Coeficiente de reflexão na interface da PML
     }
 
-    mesh_data = mesh_single_conductor_domain(PROBLEM, pml_project, h, view_mesh=False)
-    mesh_domain = Mesh2D(vx=mesh_data['VX'], vy=mesh_data['VY'], EToV=mesh_data['EToV'], boundary_label=problem['bc'])
+    mesh_data = mesh_single_conductor_domain(problem, h, view_mesh=False)
+    mesh_domain = Mesh2D(
+        vx=mesh_data['VX'],
+        vy=mesh_data['VY'],
+        EToV=mesh_data['EToV'],
+        boundary_label=problem['dg']['bc'])
 
     # Aplicar condutividade do condutor circular central
-    x_nodes, y_nodes = nodes_coordinates(problem['n_order'], mesh_domain)
-    sigma_core = aplicar_condutividade(x_nodes, y_nodes, problem['rc'], sigma_condutor=1E1)
+    x_nodes, y_nodes = nodes_coordinates(problem['dg']['n_order'], mesh_domain)
+    sigma_core = aplicar_condutividade(x_nodes, y_nodes, problem['domain']['rc'], sigma_condutor=1E1)
 
-    sp = Maxwell2D(n_order=problem['n_order'], mesh=mesh_domain, fluxType=problem['flux_type'], sigma=sigma_core, pml_design=pml_project)
+    sp = Maxwell2D(n_order=problem['dg']['n_order'], mesh=mesh_domain, fluxType=problem['dg']['flux_type'], sigma=sigma_core, pml_design=pml_project)
 
     # 2. Plotar o mapa de condutividade do condutor (sigma_c)
     plotar_condutividade_por_elemento(sp)
@@ -834,7 +938,7 @@ def transient_analysis(sp, mesh_domain, point=(1, 0), n_samples=500, n_snaps=9):
     sa.plot_field_evolution_on_x_axis(sa, sp, x0=1.0, N_grid=500)
 
     # 1. Inicializar o campo elétrico Ez 
-    driver = MaxwellDriver(sp, CFL=PROBLEM['cfl'])
+    driver = MaxwellDriver(sp, CFL=PROBLEM['dg']['cfl'])
     driver['Ez'][:] = sa.gaussian_pulse(sp.x, sp.y, 0)
 
     # Find the node closest to (x=1, y=0)

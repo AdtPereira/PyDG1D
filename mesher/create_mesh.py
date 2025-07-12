@@ -225,7 +225,7 @@ def mesh_single_conductor_domain(problem, h, view_mesh=False, auto_save=True):
     
     # Criação da pasta de saída, se habilitado
     if auto_save:
-        INPUTS = (Path(__file__).parent.parent / 'examplesData' / 'inputs' / problem['folder_name']).resolve()
+        INPUTS = (Path(__file__).parent.parent / 'examplesData' / 'inputs' / problem['folder']).resolve()
         INPUTS.mkdir(parents=True, exist_ok=True)
         file_path = INPUTS / f"{problem['name']}.msh"
         print(f"\nMalha salva em {file_path}")

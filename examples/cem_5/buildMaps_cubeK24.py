@@ -82,7 +82,7 @@ PROBLEM = {
     'DIM': 3,
     'description': 'Teste da UPML do esquema DGTD tridimensional.',
     'name': 'upml',
-    'folder': 'buildMaps_cubeK96',
+    'folder': 'cem_5',
     'dg': {
         'n_order': 1,               # Ordem de interpolação polinomial
         'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
@@ -146,7 +146,7 @@ def single_test_validation(problem) -> None:
 
     # 4. Plotar a malha
     print("\n🔎 Plotando a malha cúbica ...")
-    # mesh.plot_mesh(title="mesh_cubeK24.msh", show_vertices=True, alpha=0.15)
+    mesh.plot_mesh(title="mesh_cubeK24.msh", show_vertices=True, alpha=0.15)
 
 
     # 5. Definir a discretização espacial usando DG3D
@@ -157,16 +157,17 @@ def single_test_validation(problem) -> None:
     # 6. Estruturas de Dados DG-FEM
 
     print(f"\n🔎 Criando estruturas de dados da malha para os elementos {SHOW_ELEMENTS}...")
-    format_matrix(sp.mesh.EToV, title="EToV", elements=SHOW_ELEMENTS)    
-    format_matrix(sp.EToE, title="EToE", elements=SHOW_ELEMENTS)
-    format_matrix(sp.EToF, title="EToF", elements=SHOW_ELEMENTS)
+    display_format_matrix(sp.mesh.EToV, title="EToV", elements=SHOW_ELEMENTS)    
+    display_format_matrix(sp.EToE, title="EToE", elements=SHOW_ELEMENTS)
+    display_format_matrix(sp.EToF, title="EToF", elements=SHOW_ELEMENTS)
 
     print(f"\nEToG (Dim: {sp.mesh.EToG.shape}): \n", sp.mesh.EToG)
 
     vmapM_3D = sp.vmapM.reshape((sp.n_fp, sp.n_faces, sp.mesh.number_of_elements()), order='F')
     vmapP_3D = sp.vmapP.reshape((sp.n_fp, sp.n_faces, sp.mesh.number_of_elements()), order='F')
-    print_3d_matrices(vmapM_3D, elements=SHOW_ELEMENTS, title=f"vmapM (dim: {vmapM_3D.shape})")
-    print_3d_matrices(vmapP_3D, elements=SHOW_ELEMENTS, title=f"vmapP (dim: {vmapP_3D.shape})")
+    display_3d_matrices(vmapM_3D, title=f"vmapM (dim: {vmapM_3D.shape})")
+    display_3d_matrices(vmapM_3D, elements=SHOW_ELEMENTS, title=f"vmapM (dim: {vmapM_3D.shape})")
+    display_3d_matrices(vmapP_3D, elements=SHOW_ELEMENTS, title=f"vmapP (dim: {vmapP_3D.shape})")
 
     print(f"\n vmapB (Dim: {sp.vmapB.shape}): \n", sp.vmapB)
     print(f"\n mapB (Dim: {sp.mapB.shape}): \n", sp.mapB)    

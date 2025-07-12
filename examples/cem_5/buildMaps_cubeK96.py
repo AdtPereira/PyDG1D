@@ -83,7 +83,7 @@ PROBLEM = {
     'DIM': 3,
     'description': 'Teste da UPML do esquema DGTD tridimensional.',
     'name': 'upml',
-    'folder': 'buildMaps_cubeK96',
+    'folder': 'cem_5',
     'dg': {
         'n_order': 1,               # Ordem de interpolação polinomial
         'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
@@ -99,6 +99,10 @@ PROBLEM = {
         'Ly': 2.0,                  # Dimensão total do domínio na direção y
         'Lz': 3.0,                  # Dimensão total do domínio na direção z
         'GID_TFZ': 1,               # Grupo físico para a Total Field Zone (TFZ)
+        'GID_SFZ': 0                # Grupo físico para a Source Field Zone (SFZ)
+    },
+    'physical_groups': {
+        'TFZ': {'name': 'Total Field Zone', 'id': 1},
     },
     'pml': {
         'type': 'uniaxial', 
@@ -107,9 +111,6 @@ PROBLEM = {
         'R': 1E-4                   # Coeficiente de reflexão na interface da PML
     },
 }
-
-# Elementos a serem exibidos
-SHOW_ELEMENTS = [4, 75, 77]
 
 
 def single_test_validation(problem) -> None:
@@ -133,78 +134,63 @@ def single_test_validation(problem) -> None:
     gmsh.initialize()
     mesh_cubeK96_upml(problem)
     EToV = get_EToV(dim=problem['DIM'], index_based=0)
-    VX, VY, VZ = extract_VX_VY_VZ(get_nodes_data(dim=problem['DIM']))
+    vx, vy, vz = extract_VX_VY_VZ(get_nodes_data(dim=problem['DIM']))
     #gmsh.fltk.run()
     gmsh.finalize()
 
 
     # 2. Criar o objeto Mesh3D 
-    mesh = Mesh3D(vx=VX, vy=VY, vz=VZ, EToV=EToV, boundary_label=problem['dg']['bc'])
+    mesh = Mesh3D(vx, vy, vz, EToV, boundary_label=problem['dg']['bc'])
+    mesh.plot_mesh(title="mesh_cubeK96.msh", show_vertices=True, alpha=0.15)
     print(f"\nMalha criada com {mesh.number_of_vertices()} vértices e {mesh.number_of_elements()} elementos.")
 
 
     # 3. Criar grupo físico Total Field Zone (TFZ)
     print("\n🔎 Criando grupos físicos na malha cúbica K96...")
-    tfzDim = problem['domain']['x0']  # Semi-lados do retângulo intermediário (TFZ)
+    tfzDim = problem['domain']['x0']        # Semi-lados do retângulo intermediário (TFZ)
     mesh.box_physical_group(
-        group_tag=problem['domain']['GID_TFZ'],  # GID do grupo físico TFZ
-        group_name="TFZ",
-        half_dim=(tfzDim, tfzDim, tfzDim),
-        center=(0.0, 0.0, 0.0),
-        group_info=True
-    )
-
-
-    # 4. Plotar a malha
-    print("\n🔎 Plotando a malha cúbica K96...")
-    # mesh.plot_mesh(title="mesh_cubeK96.msh", show_vertices=True, alpha=0.15)
+        group_tag=problem['physical_groups']['TFZ']['id'],
+        group_name=problem['physical_groups']['TFZ']['name'],
+        half_dim=(tfzDim, tfzDim, tfzDim), center=(0.0, 0.0, 0.0), group_info=True)
 
 
     # 5. Definir a discretização espacial usando DG3D
     sp = Maxwell3D(n_order=problem['dg']['n_order'], mesh=mesh, fluxType=problem['dg']['flux_type'])
+    sp.buildGroupInterfaceMaps()
     print(f"\n🔎 Discretização espacial criada com ordem {sp.n_order}...")
     print(f"{sp.mesh.number_of_elements()} elementos totais, {sp.count_boundary_elements()} elementos de borda e {sp.number_of_nodes_per_element()} pontos por elemento.")
+    dg_data_structures(problem, sp)
 
 
-    # 6. Estruturas de Dados DG-FEM
-    print(f"\n🔎 Criando estruturas de dados da malha para os elementos {SHOW_ELEMENTS}...")
-    
-    format_matrix(sp.mesh.EToV, title="EToV", elements=SHOW_ELEMENTS)    
-    format_matrix(sp.EToE, title="EToE", elements=SHOW_ELEMENTS)
-    format_matrix(sp.EToF, title="EToF", elements=SHOW_ELEMENTS)
-
+def dg_data_structures(problem, sp, elements_to_show=[4, 75, 77]) -> None:
+    print(f"\n🔎 Criando estruturas de dados da malha para os elementos {elements_to_show}...")    
+    display_format_matrix(sp.mesh.EToV, title="EToV", elements=elements_to_show)    
+    display_format_matrix(sp.EToE, title="EToE", elements=elements_to_show)
+    display_format_matrix(sp.EToF, title="EToF", elements=elements_to_show)
     print(f"\nEToG (Dim: {sp.mesh.EToG.shape}): \n", sp.mesh.EToG)
 
     vmapM_3D = sp.vmapM.reshape((sp.n_fp, sp.n_faces, sp.mesh.number_of_elements()), order='F')
     vmapP_3D = sp.vmapP.reshape((sp.n_fp, sp.n_faces, sp.mesh.number_of_elements()), order='F')
     vmapI_3D = sp.vmapI.reshape((sp.n_fp, sp.n_faces, sp.mesh.number_of_elements()), order='F')
 
-    print_3d_matrices(vmapM_3D, elements=SHOW_ELEMENTS, title=f"vmapM (Dim: {vmapM_3D.shape})")
-    print_3d_matrices(vmapP_3D, elements=SHOW_ELEMENTS, title=f"vmapP (Dim: {vmapP_3D.shape})")
-    print_3d_matrices(vmapI_3D, elements=SHOW_ELEMENTS, title=f"vmapI (Dim: {vmapI_3D.shape})")
+    display_3d_matrices(vmapM_3D, elements=elements_to_show, title=f"vmapM (Dim: {vmapM_3D.shape})")
+    display_3d_matrices(vmapP_3D, elements=elements_to_show, title=f"vmapP (Dim: {vmapP_3D.shape})")
+    display_3d_matrices(vmapI_3D, elements=elements_to_show, title=f"vmapI (Dim: {vmapI_3D.shape})")
 
     print(f"\n vmapB (Dim: {sp.vmapB.shape}): \n", sp.vmapB)
     print(f"\n vmapIM (Dim: {sp.vmapIM.shape}): \n", sp.vmapIM)
     print(f"\n vmapIP (Dim: {sp.vmapIP.shape}): \n", sp.vmapIP)
-
     print(f"\n mapB (Dim: {sp.mapB.shape}): \n", sp.mapB)   
     print(f"\n mapI (Dim: {sp.mapI.shape}): \n", sp.mapI) 
-
     
-    # 8. Verificação de consistência:
-    # Os nós recuperados de vmapM usando mapI devem ser idênticos a vmapIM e vmapIP
     assert np.array_equal(sp.vmapM[sp.mapI], sp.vmapIM)
     assert np.array_equal(sp.vmapP[sp.mapI], sp.vmapIP)
 
-
-    # Chama o novo método para construir os mapas para essa interface específica
-    sp.buildGroupInterfaceMaps(id_A=problem['domain']['GID_TFZ'], id_B=0)
     print(f"\n vmapIM_G1 (Dim: {sp.vmapIM_G1.shape}): \n", sp.vmapIM_G1)
     print(f"\n vmapIP_G1 (Dim: {sp.vmapIP_G1.shape}): \n", sp.vmapIP_G1)
     print(f"\n vmapIM_G0 (Dim: {sp.vmapIM_G0.shape}): \n", sp.vmapIM_G0)
     print(f"\n vmapIP_G0 (Dim: {sp.vmapIP_G0.shape}): \n", sp.vmapIP_G0)
 
-    # 8. Plotar a malha com os ids dos pontos de colocação
     plot_interface_elements(sp, group_id=problem['domain']['GID_TFZ'], partner_group_id=0)
     plot_interface_elements(sp, group_id=0, partner_group_id=problem['domain']['GID_TFZ'])
 

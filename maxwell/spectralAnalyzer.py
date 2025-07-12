@@ -8,12 +8,14 @@ class ResonantCavity3D:
         self.DIM = problem['DIM']
         self.m = problem['m']
         self.n = problem['n']
-        self.L = problem['L']
-        self.t0 = problem['t0']
+        self.Lx = problem['domain']['Lx']
+        self.Ly = problem['domain']['Ly']
+        self.Lz = problem['domain']['Lz']
+        self.t0 = problem['dg']['t0']        
+        self.t_final = problem['dg']['t_final']
         
-        self.t_final = 10
-        self.kx = self.m * np.pi / self.L
-        self.ky = self.n * np.pi / self.L
+        self.kx = self.m * np.pi / self.Lx
+        self.ky = self.n * np.pi / self.Ly
         self.w = np.sqrt(self.kx**2 + self.ky**2)
 
     def Ez_field(self, x, y, z, t):
@@ -556,8 +558,7 @@ class PlaneWaveExcitation:
         """
         Ex_inc = np.zeros_like(x)
         Ey_inc = self.incident_Ey(x, y, z, t)
-        Ez_inc = np.zeros_like(x)
-        
+        Ez_inc = np.zeros_like(x)        
         Hx_inc = np.zeros_like(x)
         Hy_inc = np.zeros_like(x)
         Hz_inc = self.incident_Hz(x, y, z, t)
@@ -565,99 +566,120 @@ class PlaneWaveExcitation:
         return Hx_inc, Hy_inc, Hz_inc, Ex_inc, Ey_inc, Ez_inc
     
 
-    def plot_interface_nodes(self, sp, title="Visualização dos Nós da Interface"):
-        """
-        Gera um gráfico 3D dos nós que compõem a interface TF/SF.
+    # def plot_incident_fields(self, sp, t):
+    #     """
+    #     Gera uma visualização 3D dos campos incidentes Ey e Hz AVALIADOS
+    #     EXCLUSIVAMENTE nos nós da interface TF/SF.
 
-        Este método de depuração, agora parte da classe de análise, recebe o
-        objeto de discretização espacial (sp) para acessar os dados da malha
-        e da interface.
+    #     Este método de depuração mostra os valores exatos da fonte nos locais
+    #     onde ela é injetada na simulação.
 
-        Parâmetros
-        ----------
-        sp : Maxwell3D
-            A instância da classe de discretização espacial que contém os nós e mapas.
-        title : str, opcional
-            O título do gráfico.
-        """
-        fig = plt.figure(figsize=(10, 8))
-        ax = fig.add_subplot(111, projection='3d')
+    #     Parâmetros
+    #     ----------
+    #     sp : Maxwell3D
+    #         A instância da classe de discretização que contém os mapas da interface.
+    #     t : float
+    #         O instante de tempo "t" no qual o snapshot dos campos será gerado.
+    #     """
+    #     print(f"🔎 Gerando snapshot 3D dos campos incidentes na interface em t = {t:.2f}s...")
 
-        # 1. Plota todos os nós da malha (dados vindos de 'sp') como contexto
-        ax.scatter(sp.x, sp.y, sp.z, c='gray', s=2, alpha=0.1, label='Nós da Malha')
+    #     # 1. Obter as coordenadas dos nós da interface a partir do objeto 'sp'
+    #     # Esta lógica é a mesma do método plot_interface_nodes
+    #     sf_id = sp.sf_group_id
+    #     map_name = f'mapI_G{sf_id}'
 
-        # 2. Encontra e plota os nós da interface usando os atributos de 'sp'
-        sf_id = sp.sf_group_id
-        map_name = f'mapI_G{sf_id}'
+    #     if not hasattr(sp, map_name):
+    #         print(f"⚠️ Aviso: Mapa de interface '{map_name}' não encontrado. A plotagem foi cancelada.")
+    #         return
 
-        if hasattr(sp, map_name):
-            # Obtém os índices dos nós da interface a partir de 'sp'
-            node_map = getattr(sp, map_name)
-            vmap_indices = sp.vmapM[node_map]
-            
-            # Obtém as coordenadas (x,y,z) desses nós a partir de 'sp'
-            x_int = sp.x.ravel('F')[vmap_indices]
-            y_int = sp.y.ravel('F')[vmap_indices]
-            z_int = sp.z.ravel('F')[vmap_indices]
+    #     node_map = getattr(sp, map_name)
+    #     vmap_indices = sp.vmapM[node_map]
+    #     x_int = sp.x.ravel('F')[vmap_indices]
+    #     y_int = sp.y.ravel('F')[vmap_indices]
+    #     z_int = sp.z.ravel('F')[vmap_indices]
 
-            # Plota os nós da interface em destaque
-            ax.scatter(x_int, y_int, z_int, c='red', s=25, depthshade=True, label=f'Nós da Interface (Lado SF: {sf_id})')
-            print(f"🔎 Plotando {len(x_int)} nós encontrados na interface TF/SF.")
-        
-        else:
-            print(f"⚠️ Aviso: Mapa de interface '{map_name}' não encontrado em 'sp' para plotagem.")
+    #     # 2. Calcular os campos incidentes APENAS nesses pontos da interface
+    #     Hx, Hy, Hz, Ex, Ey, Ez = self.get_incident_fields(x_int, y_int, z_int, t)
 
-        # 3. Configurações do gráfico
-        ax.set_title(title, fontsize=16)
-        ax.set_xlabel("Eixo X")
-        ax.set_ylabel("Eixo Y")
-        ax.set_zlabel("Eixo Z")
-        ax.legend()
-        ax.view_init(elev=30, azim=-60)
-    
+    #     # 3. Criar a figura com dois subplots 3D
+    #     fig, (ax1, ax2) = plt.subplots(
+    #         1, 2,
+    #         figsize=(18, 8),
+    #         subplot_kw={'projection': '3d'}
+    #     )
+    #     fig.suptitle(f'Campos Incidentes na Interface TF/SF em t = {t:.2f} s', fontsize=18)
 
-    def plot_incident_fields(self, sp, t):
+    #     # --- Subplot para o Campo Elétrico Ey na interface ---
+    #     scatter1 = ax1.scatter(x_int, y_int, z_int, c=Ey, cmap='viridis', s=25, depthshade=True)
+    #     ax1.set_title(r"Campo Elétrico $E_y$ na Interface")
+    #     fig.colorbar(scatter1, ax=ax1, shrink=0.6, aspect=20, label=r'Amplitude $E_y$ (V/m)')
+
+    #     # --- Subplot para o Campo Magnético Hz na interface ---
+    #     scatter2 = ax2.scatter(x_int, y_int, z_int, c=Hz, cmap='plasma', s=25, depthshade=True)
+    #     ax2.set_title(r"Campo Magnético $H_z$ na Interface")
+    #     fig.colorbar(scatter2, ax=ax2, shrink=0.6, aspect=20, label=r'Amplitude $H_z$ (A/m)')
+
+    #     # 4. Configurações comuns para ambos os gráficos
+    #     for ax in [ax1, ax2]:
+    #         # Plota todos os nós da malha ao fundo para dar contexto
+    #         ax.scatter(sp.x, sp.y, sp.z, c='gray', s=1, alpha=0.05)
+    #         ax.set_xlabel("Eixo X")
+    #         ax.set_ylabel("Eixo Y")
+    #         ax.set_zlabel("Eixo Z")
+    #         ax.view_init(elev=30, azim=-60)
+
+    #     plt.tight_layout(rect=[0, 0, 1, 0.95])
+
+    def plot_incident_fields(self, sp, group_id_A, group_id_B, t):
         """
         Gera uma visualização 3D dos campos incidentes Ey e Hz AVALIADOS
-        EXCLUSIVAMENTE nos nós da interface TF/SF.
+        EXCLUSIVAMENTE nos nós de uma interface específica.
 
         Este método de depuração mostra os valores exatos da fonte nos locais
-        onde ela é injetada na simulação.
+        onde ela é injetada na simulação, para a interface entre os grupos A e B.
 
         Parâmetros
         ----------
         sp : Maxwell3D
             A instância da classe de discretização que contém os mapas da interface.
+        group_id_A, group_id_B : int
+            Os IDs dos dois grupos que formam a interface a ser visualizada.
         t : float
             O instante de tempo "t" no qual o snapshot dos campos será gerado.
         """
-        print(f"🔎 Gerando snapshot 3D dos campos incidentes na interface em t = {t:.2f}s...")
+        # 1. Obter nomes descritivos dos grupos a partir do objeto de malha
+        name_A = sp.mesh.group_names.get(group_id_A, f"ID {group_id_A}")
+        name_B = sp.mesh.group_names.get(group_id_B, f"ID {group_id_B}")
+        print(f"🔎 Gerando snapshot dos campos incidentes na interface entre '{name_A}' e '{name_B}' em t = {t:.2f}s...")
 
-        # 1. Obter as coordenadas dos nós da interface a partir do objeto 'sp'
-        # Esta lógica é a mesma do método plot_interface_nodes
-        sf_id = sp.sf_group_id
-        map_name = f'mapI_G{sf_id}'
-
-        if not hasattr(sp, map_name):
-            print(f"⚠️ Aviso: Mapa de interface '{map_name}' não encontrado. A plotagem foi cancelada.")
+        # 2. Obter os IDs dos nós da interface a partir da perspectiva do grupo A
+        try:
+            # vmapIM_G{id_A} contém os IDs globais dos nós no lado 'Minus' (grupo A) da interface
+            node_ids = getattr(sp, f'vmapIM_G{group_id_A}')
+        except AttributeError:
+            print(f"⚠️ Aviso: Mapa de interface 'vmapIM_G{group_id_A}' não encontrado.")
+            print("-> Certifique-se de que 'buildGroupInterfaceMaps' foi executado e a interface foi descoberta.")
             return
 
-        node_map = getattr(sp, map_name)
-        vmap_indices = sp.vmapM[node_map]
-        x_int = sp.x.ravel('F')[vmap_indices]
-        y_int = sp.y.ravel('F')[vmap_indices]
-        z_int = sp.z.ravel('F')[vmap_indices]
+        if node_ids.size == 0:
+            print(f"⚠️ Nenhum nó de interface encontrado para o grupo '{name_A}' na fronteira com '{name_B}'.")
+            return
 
-        # 2. Calcular os campos incidentes APENAS nesses pontos da interface
+        # 3. Obter as coordenadas (x,y,z) desses nós específicos
+        x_int = sp.x.ravel('F')[node_ids]
+        y_int = sp.y.ravel('F')[node_ids]
+        z_int = sp.z.ravel('F')[node_ids]
+
+        # 4. Calcular os campos incidentes APENAS nesses pontos da interface
         Hx, Hy, Hz, Ex, Ey, Ez = self.get_incident_fields(x_int, y_int, z_int, t)
 
-        # 3. Criar a figura com dois subplots 3D
+        # 5. Criar a figura com dois subplots 3D
         fig, (ax1, ax2) = plt.subplots(
             1, 2,
             figsize=(18, 8),
             subplot_kw={'projection': '3d'}
         )
-        fig.suptitle(f'Campos Incidentes na Interface TF/SF em t = {t:.2f} s', fontsize=18)
+        fig.suptitle(f"Campos Incidentes na Interface ('{name_A}' / '{name_B}') em t = {t:.2f} s", fontsize=18)
 
         # --- Subplot para o Campo Elétrico Ey na interface ---
         scatter1 = ax1.scatter(x_int, y_int, z_int, c=Ey, cmap='viridis', s=25, depthshade=True)
@@ -669,17 +691,15 @@ class PlaneWaveExcitation:
         ax2.set_title(r"Campo Magnético $H_z$ na Interface")
         fig.colorbar(scatter2, ax=ax2, shrink=0.6, aspect=20, label=r'Amplitude $H_z$ (A/m)')
 
-        # 4. Configurações comuns para ambos os gráficos
+        # 6. Configurações comuns para ambos os gráficos
         for ax in [ax1, ax2]:
-            # Plota todos os nós da malha ao fundo para dar contexto
-            ax.scatter(sp.x, sp.y, sp.z, c='gray', s=1, alpha=0.05)
+            ax.scatter(sp.x, sp.y, sp.z, c='gray', s=1, alpha=0.05) # Nós da malha ao fundo
             ax.set_xlabel("Eixo X")
             ax.set_ylabel("Eixo Y")
             ax.set_zlabel("Eixo Z")
             ax.view_init(elev=30, azim=-60)
 
         plt.tight_layout(rect=[0, 0, 1, 0.95])
-
 
     def plot_L2_error(self, error_data) -> None:
         """
