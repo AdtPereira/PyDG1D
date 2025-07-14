@@ -96,9 +96,10 @@ def get_EToV(dim, index_based=1):
     #           ``localNodeCoord`` (vector of doubles), ``numPrimaryNodes`` (integer)  
     # > Return: -
     """
+    EToV = []
+    
     # Obter os elementos da malha
     elemTypes, elemTags, elemNodeTags = gmsh.model.mesh.getElements(dim)
-    EToV = []
 
     for elemType, elemNode in zip(elemTypes, elemNodeTags):
         # Obter as propriedades do elemento
@@ -589,11 +590,11 @@ def complete_info():
             " elements")
 
         # * Upward and downward adjacencies:
-        up, down = gmsh.model.getAdjacencies(dim, tag)
-        if len(up):
-            print(" - Upward adjacencies: " + str(up))
-        if len(down):
-            print(" - Downward adjacencies: " + str(down))
+        # up, down = gmsh.model.getAdjacencies(dim, tag)
+        # if len(up):
+        #     print(" - Upward adjacencies: " + str(up))
+        # if len(down):
+        #     print(" - Downward adjacencies: " + str(down))
 
         # * Does the entity belong to physical groups?
         physicalTags = gmsh.model.getPhysicalGroupsForEntity(dim, tag)
