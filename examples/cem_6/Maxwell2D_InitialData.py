@@ -122,7 +122,7 @@ def main() -> None:
 
             # --- Abordagem 2: Obter dados por GRUPO FÍSICO ---
             print("\n--- Lendo Dados por Grupo Físico ---")
-            print(f"Grupos físicos encontrados: {reader.physical_groups}")
+            print(f"Grupos físicos encontrados: {gmsh.model.getPhysicalGroups()}")
             PhysicalGroups = reader._getPhysicalNodesDict()
 
             for GroupTag, GroupData in PhysicalGroups.items():
@@ -147,7 +147,7 @@ def main() -> None:
             print(f"{gmsh.model.getEntities()}")
 
             print("\n--- Grupos Físicos e suas Entidades ---")
-            for GroupDim, GroupTag in reader.physical_groups:
+            for GroupDim, GroupTag in gmsh.model.getPhysicalGroups():
                 print(f"\nGrupo Físico {GroupTag}: {gmsh.model.getPhysicalName(GroupDim, GroupTag)}")
                 GroupEntitiesTags = gmsh.model.getEntitiesForPhysicalGroup(GroupDim, GroupTag)
                 print(f"    Tags das Entidades Geométricas de dimensão {GroupDim}: {GroupEntitiesTags}")
@@ -173,7 +173,7 @@ def main() -> None:
             # Cria os objetos de malha usando os dados lidos do reader
             mesh2D = Mesh2D(vx=reader.vx, vy=reader.vy, EToV=reader.EToV)
             pltMesh = Mesh2DVisualizer(mesh2D.vx, mesh2D.vy, mesh2D.EToV)
-            pltMesh.plot_vertices_and_elements(title=f"{PROBLEM['domain']['name']}")
+            pltMesh.vertices_and_elements(title=f"{PROBLEM['domain']['name']}")
             print(f"\nMalha criada com {mesh2D.number_of_vertices()} vértices e {mesh2D.number_of_elements()} elementos.")
             print("=" * 60)
 

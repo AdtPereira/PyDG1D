@@ -5,7 +5,7 @@ import matplotlib.tri as mtri
 N_FACES = 3
 
 class Mesh2D:
-    def __init__(self, vx, vy, EToV, boundary_label="PEC"):
+    def __init__(self, vx, vy, EToV, physical_groups = None, boundary_label="PEC"):
         assert vx.shape == vy.shape
         assert np.max(np.max(EToV)) + 1  == vx.shape[0]
         
@@ -13,13 +13,34 @@ class Mesh2D:
         self.vx = vx
         self.vy = vy
         self.EToV = EToV        
-        self.boundary_label = boundary_label
+        self.boundary_label = boundary_label        
+
+        # Dicionário para armazenar grupos físicos
+        self.physical_groups = physical_groups if physical_groups is not None else {}
+
+        # Gera e armazena os mapeamentos de grupos físicos
+        self.EToG = self.connectivityElementsToPhysicalGroups()
+        self.FToG = self.connectivityFacesToPhysicalGroups()
 
     def number_of_vertices(self):
         return self.vx.shape[0]
 
     def number_of_elements(self):
         return self.EToV.shape[0]
+
+    def get_elements_by_group(self, group_tag: int) -> np.ndarray:
+        """ 
+        Retorna os índices de todos os elementos que pertencem a um dado grupo.
+        
+        Args:
+            group_tag (int): A tag do grupo físico a ser buscado.
+
+        Returns:
+            np.ndarray: Um array com os índices dos elementos que pertencem ao grupo.
+        """
+        # np.where encontra os índices onde a condição (EToG == group_tag) é verdadeira.
+        # Ele retorna uma tupla de arrays, então pegamos o primeiro elemento [0].
+        return np.where(self.EToG == group_tag)[0]
     
     def getTriangulation(self):
         return mtri.Triangulation(self.vx, self.vy, self.EToV.tolist())
@@ -34,9 +55,9 @@ class Mesh2D:
                 
         # create list of all faces 0, then 1, & 2
         fnodes = np.concatenate(
-            (self.EToV[:,[0,1]], 
-             self.EToV[:,[1,2]], 
-             self.EToV[:,[2,0]])
+            (self.EToV[:,[0,1]],    # Todas as faces 0 (vértices 0 e 1 de cada elemento)
+             self.EToV[:,[1,2]],    # Todas as faces 1 (vértices 1 e 2 de cada elemento)    
+             self.EToV[:,[2,0]])    # Todas as faces 2 (vértices 2 e 0 de cada elemento)
         )
         fnodes = np.sort(fnodes, 1)
 
@@ -70,6 +91,111 @@ class Mesh2D:
 
         return EToE, EToF
 
+    def connectivityElementsToPhysicalGroups(self):
+        """
+        Constrói o mapeamento EToG (Elemento para Grupo Físico).
+
+        Cada posição 'k' no array EToG armazena a tag do grupo físico
+        à qual o elemento 'k' da malha global (self.EToV[k]) pertence.
+
+        A lógica se baseia na criação de um mapa de busca onde a chave é uma
+        representação canônica de um elemento (seus vértices ordenados) e o valor
+        é seu índice global 'k'. O método então percorre os grupos físicos
+        de dimensão 2 e preenche o array EToG.
+
+        Retorna:
+            np.ndarray: Um vetor de inteiros de tamanho K (número de elementos),
+                        onde EToG[k] é a tag do grupo físico do elemento k.
+        """
+        K = self.number_of_elements()
+        # Inicializa EToG com 0 ou outra tag padrão.
+        EToG = np.zeros(K, dtype=int)
+
+        if not self.physical_groups:
+            return EToG
+
+        # 1. Cria um mapa de busca: (tupla de vértices ordenados) -> índice do elemento global (k)
+        # Uma tupla de vértices ordenados é um identificador único e canônico para um elemento.
+        element_map = {tuple(sorted(self.EToV[k])): k for k in range(K)}
+
+        # 2. Itera sobre todos os grupos físicos fornecidos
+        for tag, group_data in self.physical_groups.items():
+            # Considera apenas grupos de elementos de superfície (dimensão 2)
+            if group_data.get('dim') == self.dimension:
+                group_EToV = group_data.get('EToV', [])
+                
+                # 3. Para cada elemento no grupo, encontra seu índice global e atribui a tag
+                for element_vertices in group_EToV:
+                    # Cria a chave canônica para o elemento do grupo
+                    key = tuple(sorted(element_vertices))
+                    
+                    # Procura o elemento no mapa da malha global
+                    if key in element_map:
+                        # Atribui a tag do grupo físico à posição correta em EToG
+                        EToG[element_map[key]] = tag
+        
+        return EToG
+
+    def connectivityFacesToPhysicalGroups(self):
+        """
+        Constrói o mapeamento FToG (Face para Grupo Físico) com uma estrutura
+        matricial (K, N_FACES), análoga a EToE e EToF.
+
+        Cada entrada FToG[k, f] armazena a tag do grupo físico de contorno
+        (dimensão 1) à qual a face 'f' do elemento 'k' pertence. Faces internas
+        ou em contornos não nomeados recebem a tag 0.
+
+        A lógica mapeia cada face geométrica (definida por seus vértices) para a sua
+        localização (k, f) e, em seguida, usa os dados dos grupos físicos para
+        preencher a matriz FToG.
+
+        Retorna:
+            np.ndarray: Uma matriz de inteiros de shape (K, N_FACES),
+                        onde K é o número de elementos.
+        """
+        K = self.number_of_elements()
+        # Inicializa FToG com a mesma estrutura de EToE e EToF, preenchida com zeros.
+        FToG = np.zeros((K, N_FACES), dtype=int)
+
+        if not self.physical_groups:
+            return FToG
+
+        # 1. Mapeia cada face geométrica para sua(s) coordenada(s) (k, f)
+        face_map = {}
+        for k in range(K):
+            vertex = self.EToV[k]
+            # Define as 3 faces locais do elemento k
+            local_faces = [[vertex[0], vertex[1]],  # Face 0
+                           [vertex[1], vertex[2]],  # Face 1
+                           [vertex[2], vertex[0]]]  # Face 2
+
+            for f, face_vertex in enumerate(local_faces):
+                # A tupla de vértices ordenados é o identificador canônico da face
+                key = tuple(sorted(face_vertex))
+                if key not in face_map:
+                    face_map[key] = []
+                face_map[key].append((k, f))
+
+        # 2. Itera sobre os grupos físicos de dimensão 1 (curvas/contornos)
+        for tag, group_data in self.physical_groups.items():
+            if group_data.get('dim') == self.dimension - 1:
+                # Para grupos 1D, 'EToV' é a lista de faces
+                boundary_faces = group_data.get('EToV', [])
+                
+                for face_vertex in boundary_faces:
+                    key = tuple(sorted(face_vertex))
+                    
+                    if key in face_map:
+                        # Recupera as coordenadas (k,f) da face. Sendo de contorno,
+                        # a lista deve conter apenas uma tupla.
+                        coords_list = face_map[key]
+                        if coords_list:
+                            k, f = coords_list[0]
+                            # Atribui a tag do grupo físico à posição correta em FToG
+                            FToG[k, f] = tag
+                            
+        return FToG
+    
 
 class GmshMeshReader:
     """
@@ -89,7 +215,7 @@ class GmshMeshReader:
         self.vx = None
         self.vy = None
         self.EToV = None
-        self.physical_groups = None
+        # self.physical_groups = None
 
 
     def __enter__(self):
@@ -111,7 +237,7 @@ class GmshMeshReader:
         nodesData = PhysicalGroups[GroupDimTag[1]]['nodes']
         self.vx, self.vy = self._extractVertices(nodesData)
         self.EToV = self._getEToV(GroupDimTag)
-        self.physical_groups = gmsh.model.getPhysicalGroups()
+        # self.physical_groups = gmsh.model.getPhysicalGroups()
 
 
     def view(self):
@@ -195,34 +321,35 @@ class GmshMeshReader:
             }
         }
         """
-        physical_group_data = {}
+        physical_group_dict = {}
         # Coleta informações de todos os grupos de uma vez
         all_nodes_by_group = self._getPhysicalNodesDict()
 
         # Itera sobre a lista de grupos físicos, que já contém a dimensão e a tag
-        for dim, tag in self.physical_groups:
+        for dimGroup, tagGroup in gmsh.model.getPhysicalGroups():
             # Pula se, por algum motivo, o grupo não tiver nós associados
-            if tag not in all_nodes_by_group:
+            if tagGroup not in all_nodes_by_group:
                 continue
 
-            group_info = all_nodes_by_group[tag]
+            group_info = all_nodes_by_group[tagGroup]
             group_name = group_info['name']
             nodes_data = group_info['nodes']
 
             # Extrai os vértices e a conectividade para este grupo específico
             # A função _getEToV funciona para qualquer dimensão
-            EToV = self._getEToV((dim, tag))
+            EToV = self._getEToV((dimGroup, tagGroup))
             vx, vy = self._extractVertices(nodes_data)
 
             # Armazena os dados, incluindo a dimensão do grupo
-            physical_group_data[group_name] = {
-                'dim': dim,  # <-- PONTO-CHAVE: Armazena a dimensão do grupo
+            physical_group_dict[tagGroup] = {
+                'name': group_name,
+                'dim': dimGroup,  # <-- PONTO-CHAVE: Armazena a dimensão do grupo
                 'vx': vx,
                 'vy': vy,
                 'EToV': EToV # Nome mais genérico que 'EToV'
             }
         
-        return physical_group_data
+        return physical_group_dict
     
 
 def readFromGambitFile(filename: str):
