@@ -43,6 +43,68 @@ class Maxwell2D(SpatialDiscretization):
         self.f_scale = sJ/self.jacobian[fmask.ravel('F')]
 
         self.buildMaps()
+        self.buildInterfaceMaps()
+
+    def buildInterfaceMaps(self):
+        """
+        Constrói mapeamentos para interfaces e fronteiras, associando os nós
+        de cada face aos seus respectivos domínios 2D adjacentes e garantindo
+        a correspondência nó a nó entre os lados de uma interface.
+        """
+        # 1. Coleta os índices das faces para cada lado de cada interface.
+        #    As listas de índices NÃO são ordenadas para preservar a ordem das faces.
+        map_int_lists = {}
+        EToG = self.mesh.EToG
+        FToG = self.mesh.FToG
+        K = self.mesh.number_of_elements()
+        n_faces = self.n_faces
+        n_fp = self.n_fp
+
+        for k in range(K):
+            domain_tag = EToG[k]
+            if domain_tag == 0: continue
+            for f in range(n_faces):
+                interface_tag = FToG[k, f]
+                if interface_tag != 0:
+                    map_int_lists.setdefault(interface_tag, {})
+                    map_int_lists[interface_tag].setdefault(domain_tag, [])
+                    start_index = f * n_fp + k * n_fp * n_faces
+                    end_index = start_index + n_fp
+                    face_indices = np.arange(start_index, end_index, dtype=int)
+                    map_int_lists[interface_tag][domain_tag].extend(face_indices.tolist())
+
+        # 2. Constrói os mapeamentos finais (vmap_int e map_int)
+        self.vmapI = {}
+        self.mapI = {}
+
+        for iface_tag, domain_maps_lists in map_int_lists.items():
+            self.vmapI[iface_tag] = {}
+            self.mapI[iface_tag] = {}
+            domain_tags = list(domain_maps_lists.keys())
+
+            if len(domain_tags) == 1:  # Fronteira Externa
+                dom_tag = domain_tags[0]
+                # Para fronteiras externas, M e P são iguais, então usamos vmapM
+                indices = np.array(domain_maps_lists[dom_tag], dtype=int)
+                self.mapI[iface_tag][dom_tag] = indices
+                self.vmapI[iface_tag][dom_tag] = self.vmapM[indices]
+
+            elif len(domain_tags) == 2:  # Interface Interna
+                # Define os dois lados da interface
+                dom_A, dom_B = domain_tags[0], domain_tags[1]
+                indices_A = np.array(domain_maps_lists[dom_A], dtype=int)
+                indices_B = np.array(domain_maps_lists[dom_B], dtype=int)
+                
+                # Armazena os mapas de índices (sem ordenar)
+                self.mapI[iface_tag][dom_A] = indices_A
+                self.mapI[iface_tag][dom_B] = indices_B
+                
+                # Usa os índices do lado A para consultar vmapM e vmapP,
+                # garantindo a correspondência nó a nó.
+                # Lado A: Nós "Minus" da perspectiva do domínio A.
+                # Lado B: Nós "Plus" da perspectiva do domínio A (que são os "Minus" da perspectiva de B).
+                self.vmapI[iface_tag][dom_A] = self.vmapM[indices_A]
+                self.vmapI[iface_tag][dom_B] = self.vmapP[indices_A]
 
     def buildMaps(self):
         '''

@@ -22,11 +22,14 @@ class Mesh2D:
         self.EToG = self.connectivityElementsToPhysicalGroups()
         self.FToG = self.connectivityFacesToPhysicalGroups()
 
+
     def number_of_vertices(self):
         return self.vx.shape[0]
 
+
     def number_of_elements(self):
         return self.EToV.shape[0]
+
 
     def get_elements_by_group(self, group_tag: int) -> np.ndarray:
         """ 
@@ -42,9 +45,11 @@ class Mesh2D:
         # Ele retorna uma tupla de arrays, então pegamos o primeiro elemento [0].
         return np.where(self.EToG == group_tag)[0]
     
+    
     def getTriangulation(self):
         return mtri.Triangulation(self.vx, self.vy, self.EToV.tolist())
     
+
     def connectivityMatrices(self):
         '''
             function [EToE,EToF]= connectivity(self)
@@ -91,6 +96,7 @@ class Mesh2D:
 
         return EToE, EToF
 
+
     def connectivityElementsToPhysicalGroups(self):
         """
         Constrói o mapeamento EToG (Elemento para Grupo Físico).
@@ -136,25 +142,13 @@ class Mesh2D:
         
         return EToG
 
+
     def connectivityFacesToPhysicalGroups(self):
         """
         Constrói o mapeamento FToG (Face para Grupo Físico) com uma estrutura
         matricial (K, N_FACES), análoga a EToE e EToF.
-
-        Cada entrada FToG[k, f] armazena a tag do grupo físico de contorno
-        (dimensão 1) à qual a face 'f' do elemento 'k' pertence. Faces internas
-        ou em contornos não nomeados recebem a tag 0.
-
-        A lógica mapeia cada face geométrica (definida por seus vértices) para a sua
-        localização (k, f) e, em seguida, usa os dados dos grupos físicos para
-        preencher a matriz FToG.
-
-        Retorna:
-            np.ndarray: Uma matriz de inteiros de shape (K, N_FACES),
-                        onde K é o número de elementos.
         """
         K = self.number_of_elements()
-        # Inicializa FToG com a mesma estrutura de EToE e EToF, preenchida com zeros.
         FToG = np.zeros((K, N_FACES), dtype=int)
 
         if not self.physical_groups:
@@ -164,13 +158,11 @@ class Mesh2D:
         face_map = {}
         for k in range(K):
             vertex = self.EToV[k]
-            # Define as 3 faces locais do elemento k
-            local_faces = [[vertex[0], vertex[1]],  # Face 0
-                           [vertex[1], vertex[2]],  # Face 1
-                           [vertex[2], vertex[0]]]  # Face 2
+            local_faces = [[vertex[0], vertex[1]],
+                           [vertex[1], vertex[2]],
+                           [vertex[2], vertex[0]]]
 
             for f, face_vertex in enumerate(local_faces):
-                # A tupla de vértices ordenados é o identificador canônico da face
                 key = tuple(sorted(face_vertex))
                 if key not in face_map:
                     face_map[key] = []
@@ -179,23 +171,23 @@ class Mesh2D:
         # 2. Itera sobre os grupos físicos de dimensão 1 (curvas/contornos)
         for tag, group_data in self.physical_groups.items():
             if group_data.get('dim') == self.dimension - 1:
-                # Para grupos 1D, 'EToV' é a lista de faces
                 boundary_faces = group_data.get('EToV', [])
                 
                 for face_vertex in boundary_faces:
                     key = tuple(sorted(face_vertex))
                     
                     if key in face_map:
-                        # Recupera as coordenadas (k,f) da face. Sendo de contorno,
-                        # a lista deve conter apenas uma tupla.
                         coords_list = face_map[key]
-                        if coords_list:
-                            k, f = coords_list[0]
-                            # Atribui a tag do grupo físico à posição correta em FToG
+                        
+                        # --- CORREÇÃO APLICADA AQUI ---
+                        # Itera sobre todos os pares (k, f) que compartilham esta face.
+                        # Para uma face externa, a lista terá 1 item.
+                        # Para uma face interna, a lista terá 2 itens.
+                        for k, f in coords_list:
                             FToG[k, f] = tag
                             
         return FToG
-    
+
 
 class GmshMeshReader:
     """
@@ -228,16 +220,54 @@ class GmshMeshReader:
         gmsh.finalize()
 
 
-    def read_global_mesh(self,  GroupDimTag: tuple[int, int] = (2, 201)) -> None:
+    def read_global_mesh(self) -> None:
         """
-        Lê os dados da malha global do arquivo e os armazena nos atributos da instância.
-        Este método preenche self.vx, self.vy e self.EToV para a malha inteira.
+        Lê a malha 2D global completa do arquivo, combinando todos os elementos
+        dos grupos físicos de dimensão 2. Este método reutiliza os métodos
+        auxiliares para construir a malha global.
         """
-        PhysicalGroups = self._getPhysicalNodesDict()
-        nodesData = PhysicalGroups[GroupDimTag[1]]['nodes']
-        self.vx, self.vy = self._extractVertices(nodesData)
-        self.EToV = self._getEToV(GroupDimTag)
-        # self.physical_groups = gmsh.model.getPhysicalGroups()
+        # 1. Identificar todos os grupos físicos de dimensão 2
+        all_physical_groups = gmsh.model.getPhysicalGroups()
+        dim2_groups = [(dim, tag) for dim, tag in all_physical_groups if dim == self.ProblemDim]
+
+        if not dim2_groups:
+            raise RuntimeError(f"Nenhum grupo físico de dimensão {self.ProblemDim} foi encontrado na malha.")
+
+        # 2. Coletar dados de nós de todos os grupos 2D para criar um conjunto único
+        all_nodes_data = {}
+        for dim, tag in dim2_groups:
+            # Chama o método auxiliar para cada grupo 2D
+            group_info = self._getPhysicalNodesDict((dim, tag))
+            # Adiciona/atualiza o dicionário global com os nós de cada grupo
+            all_nodes_data.update(group_info['nodes'])
+
+        # 3. Extrair vértices únicos e criar o mapa de 'tag' para 'índice'
+        # A função _extractVertices é efetivamente replicada aqui para o conjunto global
+        sorted_nodes = sorted(all_nodes_data.items())
+        node_tags = [key for key, _ in sorted_nodes]
+        self.vx = np.array([value[0] for _, value in sorted_nodes])
+        self.vy = np.array([value[1] for _, value in sorted_nodes])
+        
+        # Este mapa é a chave para a re-indexação
+        tag_to_idx = {tag: i for i, tag in enumerate(node_tags)}
+
+        # 4. Coletar a conectividade (EToV) de cada grupo 2D usando _getEToV
+        list_of_EToV_with_tags = []
+        for dim, tag in dim2_groups:
+            # Chamamos _getEToV com index_based=1 para que ele retorne as tags
+            # originais do GMSH, em vez de tentar convertê-las para base 0.
+            EToV_group = self._getEToV((dim, tag), index_based=1)
+            list_of_EToV_with_tags.append(EToV_group)
+
+        # 5. Concatenar todas as matrizes EToV
+        if not list_of_EToV_with_tags:
+            raise RuntimeError("Não foi possível extrair a conectividade de nenhum grupo 2D.")
+        
+        EToV_with_tags = np.concatenate(list_of_EToV_with_tags, axis=0)
+
+        # 6. Re-indexar a matriz EToV global usando o mapa tag_to_idx
+        # np.vectorize aplica a busca no dicionário a cada elemento de forma eficiente
+        self.EToV = np.vectorize(tag_to_idx.get)(EToV_with_tags).astype(int)
 
 
     def view(self):
@@ -269,26 +299,33 @@ class GmshMeshReader:
         return np.array(EToV, dtype=int)
 
 
-    def _getPhysicalNodesDict(self):
-        PhysicalGroups = {}
-        for dim, GroupTag in gmsh.model.getPhysicalGroups():
-            NodeTags, NodeCoords = gmsh.model.mesh.getNodesForPhysicalGroup(dim, GroupTag)
-            NodeTags = [int(tag) for tag in NodeTags.astype(np.uint64)]
+    def _getPhysicalNodesDict(self, GroupDimTag: tuple[int, int]) -> dict:
+        """
+        Retorna os dados de nós para um único grupo físico especificado.
 
-            PhysicalGroups[GroupTag] = {
-                "name": gmsh.model.getPhysicalName(dim, GroupTag),
-                "nodes": {
-                    int(node): (
-                        float(NodeCoords[3*i]),
-                        float(NodeCoords[3*i + 1]),
-                        float(NodeCoords[3*i + 2]),
-                    ) for i, node in enumerate(NodeTags)
-                }
+        Args:
+            GroupDimTag (tuple[int, int]): A tupla (dimensão, tag) do grupo físico.
+
+        Returns:
+            dict: Um dicionário contendo o nome e os dados dos nós do grupo.
+        """
+        dim, GroupTag = GroupDimTag
+        NodeTags, NodeCoords = gmsh.model.mesh.getNodesForPhysicalGroup(dim, GroupTag)
+        NodeTags = [int(tag) for tag in NodeTags.astype(np.uint64)]
+
+        group_data = {
+            "name": gmsh.model.getPhysicalName(dim, GroupTag),
+            "nodes": {
+                int(node): (
+                    float(NodeCoords[3*i]),
+                    float(NodeCoords[3*i + 1]),
+                    float(NodeCoords[3*i + 2]),
+                ) for i, node in enumerate(NodeTags)
             }
+        }
+        return group_data
+    
 
-        return PhysicalGroups
-    
-    
     def _extractVertices(self, nodesData):
         sorted_nodes = sorted(nodesData.items())
         vx = np.array([value[0] for key_, value in sorted_nodes])
@@ -322,16 +359,11 @@ class GmshMeshReader:
         }
         """
         physical_group_dict = {}
-        # Coleta informações de todos os grupos de uma vez
-        all_nodes_by_group = self._getPhysicalNodesDict()
 
         # Itera sobre a lista de grupos físicos, que já contém a dimensão e a tag
         for dimGroup, tagGroup in gmsh.model.getPhysicalGroups():
-            # Pula se, por algum motivo, o grupo não tiver nós associados
-            if tagGroup not in all_nodes_by_group:
-                continue
-
-            group_info = all_nodes_by_group[tagGroup]
+            # Chama o método padronizado para obter os dados do grupo atual
+            group_info = self._getPhysicalNodesDict((dimGroup, tagGroup))
             group_name = group_info['name']
             nodes_data = group_info['nodes']
 
@@ -343,10 +375,10 @@ class GmshMeshReader:
             # Armazena os dados, incluindo a dimensão do grupo
             physical_group_dict[tagGroup] = {
                 'name': group_name,
-                'dim': dimGroup,  # <-- PONTO-CHAVE: Armazena a dimensão do grupo
+                'dim': dimGroup,
                 'vx': vx,
                 'vy': vy,
-                'EToV': EToV # Nome mais genérico que 'EToV'
+                'EToV': EToV
             }
         
         return physical_group_dict

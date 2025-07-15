@@ -72,11 +72,12 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..\..')
 
 from maxwell.dg.dg2d import *
 from maxwell.dg.mesh2d import *
-from maxwell.dg.mesh2dvisualizer import *
+from maxwell.dg.mesh2d_visualizer import *
+from maxwell.dg.mesh2d_creator import *
+
 from maxwell.driver import *
 from maxwell.utils import *
 from maxwell.integrators.LSERK4 import *
-from mesher.create2dMesh import *
 
 PROBLEM = {
     'DIM': 2,
@@ -108,39 +109,33 @@ def main() -> None:
     """Função principal para execução do script."""
     clear_terminal()
     gmshFileName = os.path.join(OUTPUTS, f"{PROBLEM['name']}_{PROBLEM['domain']['name']}.msh")
-    
+    graphicsFilePath = os.path.join(OUTPUTS, f"{PROBLEM['name']}_{PROBLEM['domain']['name']}")
+
     # 1. Criar e/ou ler a malha com Gmsh usando a nova classe GmshMeshReader
     try:
         # Usando o gerenciador de contexto para garantir que o gmsh seja finalizado
         with GmshMeshReader(filename=gmshFileName, problem_dim=PROBLEM['DIM']) as reader:
             # createSquareK14(gmshFileName) # Se precisar criar o arquivo .msh
 
-            # --- Abordagem 1: Ler a malha GLOBAL para o grupo físico 201 ---
-            GroupTag = (2, 201)
-            print(f"\n--- Lendo a Malha Global para o grupo físico {GroupTag} ---")
-            reader.read_global_mesh(GroupTag)
+            # # --- Obter dados por GRUPO FÍSICO ---
+            # 1. Ler a malha global e os dados dos grupos físicos usando os métodos principais
+            print("--- Lendo a malha global e os grupos físicos ---")
+            reader.read_global_mesh()
+            physical_groups = reader.get_physical_group_data()
+            print("Leitura concluída com sucesso.")
 
-            # --- Abordagem 2: Obter dados por GRUPO FÍSICO ---
-            print("\n--- Lendo Dados por Grupo Físico ---")
-            print(f"Grupos físicos encontrados: {gmsh.model.getPhysicalGroups()}")
-            PhysicalGroups = reader._getPhysicalNodesDict()
+            # 2. Inspecionar os dados coletados (opcional, para depuração)
+            # Este bloco substitui os laços manuais anteriores.
+            print(f"\n--- {len(physical_groups)} Grupos Físicos Coletados ---")
+            for tag, data in physical_groups.items():
+                print(f"\nGrupo '{data['name']}' (Tag: {tag}, Dim: {data['dim']})")
+                print(f"  - Número de Vértices: {len(data['vx'])}")
+                for i, coords in enumerate(zip(data['vx'], data['vy'])):
+                    print(f"    - Vértice {i}: ({int(coords[0])}, {int(coords[1])})")
+                print(f"  - Coordenadas dos Vértices:\nvx={data['vx']}, \nvy={data['vy']}")
+                print(f"  - Shape da Conectividade EToV: {data['EToV'].shape}")
 
-            for GroupTag, GroupData in PhysicalGroups.items():
-                print(f"\nGrupo Físico {GroupTag}: {GroupData['name']}")
-                nodes = GroupData['nodes']
-                
-                print(f"    Vértices: {len(nodes)}")
-                for node, coords in nodes.items():
-                    print(f"        - Nó {node}: ({coords[0]}, {coords[1]})")
-                
-                vx, vy = reader._extractVertices(nodes)
-                print(f"\n    Coordenadas extraídas:")
-                print(f"    vx={vx}")
-                print(f"    vy={vy}")
-            
-            print("\n")
-            print("=" * 60)
-
+            print("\n" + "=" * 60)
 
             # Exibir os grupos físicos e suas entidades
             print(f"\n--- Entidades Geométricas do Modelo ---")
@@ -172,7 +167,7 @@ def main() -> None:
             # 2. Plotar a malha
             # Cria os objetos de malha usando os dados lidos do reader
             mesh2D = Mesh2D(vx=reader.vx, vy=reader.vy, EToV=reader.EToV)
-            pltMesh = Mesh2DVisualizer(mesh2D.vx, mesh2D.vy, mesh2D.EToV)
+            pltMesh = Mesh2DVisualizer(mesh2D.vx, mesh2D.vy, mesh2D.EToV, filePath=graphicsFilePath)
             pltMesh.vertices_and_elements(title=f"{PROBLEM['domain']['name']}")
             print(f"\nMalha criada com {mesh2D.number_of_vertices()} vértices e {mesh2D.number_of_elements()} elementos.")
             print("=" * 60)

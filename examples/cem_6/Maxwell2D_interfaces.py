@@ -9,7 +9,7 @@ ESTE SCRIPT UTILIZA CAMINHOS ABSOLUTOS E NÃO ALTERA O DIRETÓRIO DE TRABALHO
 EXECUÇÃO:
 cd C:\\git\\PyDG1D
 conda activate pyDG1D
-python examples\\cem_6\\Maxwell2D.py
+python examples\\cem_6\\Maxwell2D_interfaces.py
 
 ══════════════════════════════════════════════════════════════════════════
 
@@ -92,11 +92,17 @@ PROBLEM = {
         't_final': 10.0,            # Tempo final da simulação
     },
     'domain': {
-        'name': 'SquareK14',        # Nome do domínio
+        'name': 'SquareK16',        # Nome do domínio
         'type': 'square',           # Tipo de domínio: 'square' ou 'cubic'
-        'h': 4.0,                   # Tamanho máximo do elemento da malha
-        'Lx': 1.0,                  # Semi-lados do domínio externo na direção x
-        'Ly': 1.0,                  # Semi-lados do domínio externo na direção y
+        'h': 2.0,                   # Tamanho máximo do elemento da malha
+        'Lx': 2.0,                  # Semi-lados do domínio externo na direção x
+        'Ly': 2.0,                  # Semi-lados do domínio externo na direção y
+    },
+    'pml': {
+        'type': 'uniaxial', 
+        'L': 1.0,                   # Largura da camada da PML
+        'pml_order': 2,             # Ordem polinomial da PML
+        'R': 1E-4                   # Coeficiente de reflexão na interface da PML
     },
 }
 
@@ -116,7 +122,6 @@ def create_mesh_object(problem: dict, filename: str) -> Mesh2D:
             print(f"Grupos Físicos (Gmsh): {gmsh.model.getPhysicalGroups()}")
             print(f"Grupos Físicos (Dict): {physical_groups.keys()}")
 
-
             for name, data in physical_groups.items():
                 print(f"Grupo '{name}': {data['EToV'].shape[0]} elementos.")
 
@@ -124,7 +129,8 @@ def create_mesh_object(problem: dict, filename: str) -> Mesh2D:
             graphicsFilePath = os.path.join(OUTPUTS, f"{PROBLEM['name']}_{PROBLEM['domain']['name']}")    
 
             mesh2D = Mesh2D(vx=reader.vx, vy=reader.vy, EToV=reader.EToV,
-                            physical_groups=physical_groups, boundary_label=problem['dg']['bc'])
+                            physical_groups=physical_groups,
+                            boundary_label=problem['dg']['bc'])
             
             pltMesh = Mesh2DVisualizer(mesh2D.vx, mesh2D.vy, mesh2D.EToV, 
                                        physical_groups=mesh2D.physical_groups,
@@ -209,10 +215,10 @@ def create_interface_data_structure(problem: dict, pltMesh: Mesh2DVisualizer, dg
     """
     
     # Bloco para inspecionar os novos mapeamentos de interface
-    print(f"\n--- Inspecionando Mapeamentos de Interface (vmap_int e map_int) ---")
+    print(f"\n--- Inspecionando Mapeamentos de Interface (vmapI e mapI) ---")
 
     # Verifica se os mapeamentos foram criados
-    if hasattr(dg, 'vmap_int') and dg.vmapI:
+    if hasattr(dg, 'vmapI') and dg.vmapI:
         # Itera sobre cada interface (ex: outerBoundary, tfzInterface)
         for interface_tag, domain_data in dg.vmapI.items():
             iface_name = dg.mesh.physical_groups.get(interface_tag, {}).get('name', 'N/A')
@@ -223,12 +229,12 @@ def create_interface_data_structure(problem: dict, pltMesh: Mesh2DVisualizer, dg
                 domain_name = dg.mesh.physical_groups.get(domain_tag, {}).get('name', 'N/A')
                 print(f"  - Lado do Domínio '{domain_name}' (Tag: {domain_tag}):")
                 
-                # Exibe os nós (vmap_int)
-                print(f"    - vmap_int (Dim: {nodes_array.shape}):\n      {nodes_array}")
+                # Exibe os nós (vmapI)
+                print(f"    - vmapI (Dim: {nodes_array.shape}):\n      {nodes_array}")
 
-                # Exibe os índices (map_int)
+                # Exibe os índices (mapI)
                 indices_array = dg.mapI[interface_tag][domain_tag]
-                print(f"    - map_int (Dim: {indices_array.shape}):\n      {indices_array}")
+                print(f"    - mapI (Dim: {indices_array.shape}):\n      {indices_array}")
 
     # A asserção para a fronteira externa (tag 101) também precisa ser atualizada.
     # Ela agora verifica se os nós do único domínio adjacente à fronteira 101
@@ -236,8 +242,8 @@ def create_interface_data_structure(problem: dict, pltMesh: Mesh2DVisualizer, dg
     if 101 in dg.vmapI:
         # Pega a tag do único domínio adjacente à fronteira 101
         outer_domain_tag = list(dg.vmapI[101].keys())[0]
-        assert np.array_equal(dg.vmapI[101][outer_domain_tag], dg.vmapB), "vmap_int[101] e vmapB devem ser iguais."
-        assert np.array_equal(dg.mapI[101][outer_domain_tag], dg.mapB), "map_int[101] e mapB devem ser iguais."
+        assert np.array_equal(dg.vmapI[101][outer_domain_tag], dg.vmapB), "vmapI[101] e vmapB devem ser iguais."
+        assert np.array_equal(dg.mapI[101][outer_domain_tag], dg.mapB), "mapI[101] e mapB devem ser iguais."
         print("\n✅ Asserções para a fronteira externa (Tag 101) verificadas com sucesso!")
 
     # Plotar os pontos de colocação do solver
@@ -250,7 +256,7 @@ def main() -> None:
     
     # 1. Criar a malha e o visualizador
     gmshFileName = os.path.join(OUTPUTS, f"{PROBLEM['name']}_{PROBLEM['domain']['name']}.msh")
-    SquareK14Domain(gmshFileName) # Se precisar criar o arquivo .msh
+    SquareK16Domain(PROBLEM, gmshFileName) # Se precisar criar o arquivo .msh
     mesh2D, pltMesh = create_mesh_object(PROBLEM, gmshFileName)
     if mesh2D is None or pltMesh is None:
         print("Erro ao criar a malha ou o visualizador. Verifique os logs.")
@@ -264,6 +270,7 @@ def main() -> None:
 
     # 4. Criar a estrutura de dados para as interfaces
     create_interface_data_structure(PROBLEM, pltMesh, dg)
+
 
 if __name__ == '__main__':
     main()

@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 from matplotlib.collections import LineCollection
@@ -8,17 +9,20 @@ from .dg2d import Maxwell2D
 
 # NOVA CLASSE FILHA: Responsável pela visualização
 class Mesh2DVisualizer(Mesh2D):
-    def __init__(self, vx, vy, EToV, physical_groups=None, boundary_label="PEC"):
+    def __init__(self, vx, vy, EToV, physical_groups=None, boundary_label="PEC", filePath=None):
         # Chama o construtor da classe pai (Mesh2D) para inicializar os dados
         super().__init__(vx, vy, EToV, physical_groups=physical_groups, boundary_label=boundary_label)
 
         # Atributos de estilo para customização dos plots
-        self.figure_size = (8, 8)
-        self.title_font_size = 10
-        self.element_label_font_size = 10
-        self.node_label_font_size = 7
-        self.node_marker_color = 'red'
-        self.element_label_color = 'darkslateblue'
+        self.filePath = filePath                    # Caminho para salvar o gráfico, se necessário
+        self.bbox_anchor = (1.0, 1.15)              # Posição da legenda fora do gráfico
+        self.figure_size = (8, 8)                   # Tamanho da figura do gráfico
+        self.title_font_size = 10                   # Tamanho da fonte do título do gráfico
+        self.element_label_font_size = 10           # Tamanho da fonte dos rótulos dos elementos
+        self.node_label_font_size = 7               # Tamanho da fonte dos rótulos dos nós
+        self.node_marker_color = 'red'              # Cor dos marcadores dos nós
+        self.element_label_color = 'darkslateblue'  # Cor dos rótulos dos elementos
+
 
     def vertices_and_elements(self, show_vertices=True, title='Malha Triangular'):
         """ Plota a malha triangular com numeração dos elementos e vértices. """
@@ -55,8 +59,12 @@ class Mesh2DVisualizer(Mesh2D):
         ax.set_title(title, fontsize=self.title_font_size)
         ax.set_xlabel('x (m)')
         ax.set_ylabel('y (m)')
-        ax.legend(loc='upper right', bbox_to_anchor=(1, 1.1))
+        ax.legend(loc='upper right', bbox_to_anchor=self.bbox_anchor)
         plt.grid(True, linestyle='--', alpha=0.5)
+
+        full_path = self.filePath + "_vertices.svg"
+        plt.savefig(full_path, dpi=300, bbox_inches='tight', pad_inches=0.1)
+        print(f"\n📄 Graphics saved at {full_path}")
 
 
     def gmsh_physical_group_map(self, physical_group_data: dict, title='Mapa de Grupos Físicos'):
@@ -108,8 +116,12 @@ class Mesh2DVisualizer(Mesh2D):
         ax.set_title(title, fontsize=self.title_font_size)
         ax.set_xlabel('x (m)')
         ax.set_ylabel('y (m)')
-        ax.legend(handles=legend_handles, labels=legend_labels, loc='upper right', bbox_to_anchor=(1, 1.1))
+        ax.legend(handles=legend_handles, labels=legend_labels, loc='upper right', bbox_to_anchor=self.bbox_anchor)
         plt.grid(True, linestyle='--', alpha=0.5)
+
+        full_path = self.filePath + "_gmsh_groups.svg"
+        plt.savefig(full_path, dpi=300, bbox_inches='tight', pad_inches=0.1)
+        print(f"\n📄 Graphics saved at {full_path}")
 
 
     def _plot_element_indices(self, ax):
@@ -160,6 +172,43 @@ class Mesh2DVisualizer(Mesh2D):
             ax.plot(marker_x_coords, marker_y_coords, 'o', markersize=5, color=self.node_marker_color, alpha=0.8, linestyle='none', label=marker_label)
 
 
+    def _plot_physical_group_edges(self, ax):
+        """
+        Método auxiliar para sobrepor as arestas que pertencem a grupos físicos 1D.
+
+        Args:
+            ax (matplotlib.axes.Axes): O eixo onde a plotagem será realizada.
+        """
+        # Verifica se existem grupos físicos para evitar erros
+        if not self.physical_groups:
+            return
+        
+        colors = plt.cm.get_cmap('viridis', len(self.physical_groups))
+
+        # Itera sobre todos os grupos físicos definidos
+        for i, (key, DataGroup) in enumerate(self.physical_groups.items()):
+            # Plota apenas os grupos que são 1D (linhas/arestas)
+            if DataGroup.get('dim') == 1:
+                vx_group = DataGroup['vx']
+                vy_group = DataGroup['vy']
+                EToV_group = DataGroup['EToV']
+                name_group = f"{DataGroup['name']} (Tag {key})"
+
+                # Lida com a conectividade local do grupo
+                unique_nodes, inverse_indices = np.unique(EToV_group.flatten(), return_inverse=True)
+                connectivity_local = inverse_indices.reshape(EToV_group.shape)
+
+                # Cria uma lista de segmentos de linha a partir da conectividade
+                # O formato é [((x1, y1), (x2, y2)), ...]
+                segments = [((vx_group[p1], vy_group[p1]), (vx_group[p2], vy_group[p2])) for p1, p2 in connectivity_local]
+
+                # Usa LineCollection para plotar as arestas de forma eficiente
+                # com uma cor e espessura distintas para destaque
+                lines = LineCollection(segments, colors=colors(i), linewidths=1,
+                                       zorder=5, label=name_group)
+                ax.add_collection(lines)
+
+
     def collocation_points(self, dg: Maxwell2D, map_type='M', shift_distance=0.08, title='Índices Globais dos Pontos de Colocação (vmap)'):
         """
         Orquestra a plotagem dos nós, índices de elementos e índices de pontos de colocação.
@@ -176,8 +225,13 @@ class Mesh2DVisualizer(Mesh2D):
         fig, ax = plt.subplots(figsize=self.figure_size)
         ax.set_aspect('equal')
         
+        # Desenha a malha base
         ax.triplot(self.getTriangulation(), 'k-', lw=0.5, alpha=0.3, label='_nolegend_')
 
+        # Sobrepõe as arestas dos grupos físicos para destaque
+        self._plot_physical_group_edges(ax)
+
+        # Plota os índices dos elementos
         dynamic_title = title.replace('(vmap)', f'(vmap{map_type})')
         marker_label = f'Nós de Colocação ({map_type})'
 
@@ -189,6 +243,10 @@ class Mesh2DVisualizer(Mesh2D):
         ax.set_title(dynamic_title, fontsize=self.title_font_size, fontweight='bold')
         ax.set_xlabel('x (m)')
         ax.set_ylabel('y (m)')
-        ax.legend(loc='upper right', bbox_to_anchor=(1, 1.1))
+        ax.legend(loc='upper right', bbox_to_anchor=self.bbox_anchor)
         plt.grid(True, linestyle='--', alpha=0.3)
+
+        full_path = self.filePath + "_collocation_points.svg"
+        plt.savefig(full_path, dpi=300, bbox_inches='tight', pad_inches=0.1)
+        print(f"\n📄 Graphics saved at {full_path}")
 
