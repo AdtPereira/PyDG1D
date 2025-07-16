@@ -389,6 +389,120 @@ class Maxwell2D(SpatialDiscretization):
 
         return flux_Hx, flux_Hy, flux_Ez
 
+    # def fieldsOnGroupInterfaces(self, Hx, Hy, Ez, group_tag):
+    #     """
+    #     Calcula os campos (Hx, Hy, Ez) nos nós de uma interface ou fronteira
+    #     de um grupo físico específico.
+
+    #     Args:
+    #         Hx (np.ndarray): O campo Hx em todos os elementos.
+    #         Hy (np.ndarray): O campo Hy em todos os em elementos.
+    #         Ez (np.ndarray): O campo Ez em todos os os elementos.
+    #         group_tag (int): A tag numérica do grupo físico (e.g., 101 para outerBoundary).
+
+    #     Returns:
+    #         (np.ndarray, np.ndarray, np.ndarray): Tupla contendo os campos
+    #         H_group_x, H_group_y, e E_group_z nos nós da interface especificada.
+    #         Retorna (None, None, None) se a tag do grupo não for encontrada.
+    #     """
+    #     bcType = self.mesh.boundary_label
+
+    #     # 1. Recupera as informações do grupo físico usando a tag.
+    #     group_info = self.mesh.physical_groups.get(group_tag)
+    #     expected_name = 'outerBoundary' # Nome que esperamos validar.
+
+    #     # 2. Acessa os mapas de interface para a tag de grupo fornecida.
+    #     #    self.vmapI[group_tag] retorna um dicionário {domain_tag: node_indices}.
+    #     interface_map = self.vmapI.get(group_tag)        
+        
+    #     if group_info:
+    #         group_name = group_info.get('name', 'N/A')
+    #         group_dim = group_info.get('dim', -1)
+    #         print(f"[Validação] Tag: {group_tag} | Nome: '{group_name}' | Dimensão: {group_dim}")
+
+    #         # 3. Valida o "item 2": se estamos tratando de uma fronteira como 'outerBoundary',
+    #         #    a sua dimensão física deve ser 1 (uma linha).
+    #         if group_dim == 1 and group_name == expected_name:
+    #             print(f"[Validação] SUCESSO: A tag {group_tag} corresponde à fronteira 1D '{expected_name}'.")
+    #         else:
+    #             # Fornece feedback específico em caso de falha.
+    #             if group_dim != 1:
+    #                 print(f"[Validação] FALHA: A dimensão esperada era 1, mas a encontrada foi {group_dim}.")
+    #             if group_name != expected_name:
+    #                 print(f"[Validação] FALHA: O nome esperado era '{expected_name}', mas o encontrado foi '{group_name}'.")
+    #     else:
+    #         print(f"[Validação] FALHA: A tag de grupo {group_tag} não foi encontrada nas definições de grupos físicos.")
+
+    #     if not interface_map:
+    #         print(f"Aviso: A tag de grupo {group_tag} não foi encontrada em self.vmapI.")
+    #         return None, None, None
+        
+    #     # 4. Para uma fronteira como a 'outerBoundary', esperamos apenas um domínio
+    #     #    associado. Extraímos os índices de nós de contorno para esse domínio.
+    #     #    O values() retorna uma lista de arrays de índices; pegamos o primeiro.
+    #     node_indices = list(interface_map.values())[0]
+
+    #     # 5. Usa os índices obtidos para extrair os valores dos campos,
+    #     #    seguindo uma lógica similar a fieldsOnBoundaryConditions().
+    #     #    A transposição dos campos é necessária para que o método .take()
+    #     #    acesse os dados na ordem correta (Fortran-style).
+    #     if bcType == "PEC":
+    #         HxInt = + Hx.transpose().take(node_indices)
+    #         HyInt = + Hy.transpose().take(node_indices)
+    #         EzInt = - Ez.transpose().take(node_indices)
+    #     else:
+    #         raise ValueError("Invalid boundary label.")
+        
+    #     return HxInt, HyInt, EzInt
+    
+    def fieldsOnGroupInterfaces(self, Hx, Hy, Ez, group_tag):
+        """
+        Calcula os campos (Hx, Hy, Ez) nos nós de uma interface ou fronteira
+        de um grupo físico específico.
+
+        Args:
+            Hx (np.ndarray): O campo Hx em todos os elementos.
+            Hy (np.ndarray): O campo Hy em todos os em elementos.
+            Ez (np.ndarray): O campo Ez em todos os os elementos.
+            group_tag (int): A tag numérica do grupo físico (e.g., 101 para outerBoundary).
+
+        Returns:
+            (np.ndarray, np.ndarray, np.ndarray): Tupla contendo os campos
+            H_group_x, H_group_y, e E_group_z nos nós da interface especificada.
+            Retorna (None, None, None) se a tag do grupo não for encontrada.
+        """
+        bcType = self.mesh.boundary_label
+
+        # 1. Recupera as informações do grupo físico e o mapa da interface usando a tag.
+        group_info = self.mesh.physical_groups.get(group_tag)
+        interface_map = self.vmapI.get(group_tag)
+        
+        # Assegura que a tag do grupo existe tanto nos grupos físicos quanto nos mapas de interface.
+        assert group_info is not None, f"FALHA: A tag de grupo {group_tag} não foi encontrada nas definições de grupos físicos."
+        assert interface_map is not None, f"AVISO: A tag de grupo {group_tag} não foi encontrada em self.vmapI."
+
+        # Extrai o nome e a dimensão do grupo.
+        group_name = group_info.get('name', 'N/A')
+        group_dim = group_info.get('dim', -1)
+        expected_name = 'outerBoundary'
+
+        # 2. Valida se a tag corresponde a uma fronteira 1D com o nome esperado.
+        assert group_dim == 1, f"FALHA: A dimensão esperada era 1, mas a encontrada foi {group_dim}."
+        assert group_name == expected_name, f"FALHA: O nome esperado era '{expected_name}', mas o encontrado foi '{group_name}'."
+
+        # 3. Para uma fronteira, esperamos apenas um domínio associado.
+        node_indices = list(interface_map.values())[0]
+
+        # 4. Usa os índices obtidos para extrair os valores dos campos
+        if bcType == "PEC":
+            HxInt = + Hx.transpose().take(node_indices)
+            HyInt = + Hy.transpose().take(node_indices)
+            EzInt = - Ez.transpose().take(node_indices)
+        else:
+            raise ValueError("Invalid boundary label.")
+        
+        return HxInt, HyInt, EzInt
+
     def fieldsOnBoundaryConditions(self, Hx, Hy, Ez):
 
         bcType = self.mesh.boundary_label
@@ -413,7 +527,9 @@ class Maxwell2D(SpatialDiscretization):
         return Hbcx, Hbcy, Ebcz
 
     def computeJumps(self, Hx, Hy, Ez):
-        Hbcx, Hbcy, Ebcz = self.fieldsOnBoundaryConditions(Hx, Hy, Ez)
+        # Hbcx, Hbcy, Ebcz = self.fieldsOnBoundaryConditions(Hx, Hy, Ez)
+        Hbcx, Hbcy, Ebcz = self.fieldsOnGroupInterfaces(Hx, Hy, Ez, group_tag=101)
+        
         dHx = Hx.transpose().take(self.vmapM) - Hx.transpose().take(self.vmapP)
         dHy = Hy.transpose().take(self.vmapM) - Hy.transpose().take(self.vmapP)
         dEz = Ez.transpose().take(self.vmapM) - Ez.transpose().take(self.vmapP)

@@ -106,7 +106,7 @@ def resonant_cavity_ez_field(x, y, t):
     return np.sin(m*np.pi*x)*np.sin(n*np.pi*y)*np.cos(w*t)
 
 
-def single_test_solution(problem_data) -> None:
+def single_test_solution(problem) -> None:
     """
     Testa a solução numérica comparando com a solução analítica.
 
@@ -124,7 +124,7 @@ def single_test_solution(problem_data) -> None:
     None
     """
     # Criar a malha retangular com Gmsh
-    mesh_data = mesh_rectangular_domain(problem_data, BOUNDARY, MATERIAL, h=1, view_mesh=False, mesh_info=False) 
+    mesh_data = mesh_rectangular_domain(problem, BOUNDARY, MATERIAL, h=1, view_mesh=False, mesh_info=False) 
 
     # Visualizar a malha criada
     INFO_GRAPH = {'cell': False, 'nodes': False, 'edges': False, 'edges_numb': False,
@@ -133,20 +133,20 @@ def single_test_solution(problem_data) -> None:
 
     # Definir a discretização espacial usando DG1D
     sp = Maxwell2D(
-        n_order=problem_data['n_order'],
+        n_order=problem['n_order'],
         mesh=Mesh2D(
             vx=mesh_data['VX'],
             vy=mesh_data['VY'],
             EToV=mesh_data['EToV'],
             boundary_label="PEC"),
-        fluxType=problem_data['flux_type'])
+        fluxType=problem['flux_type'])
     
     # Initialize the solver
-    driver = MaxwellDriver(sp, CFL=problem_data['cfl'])
+    driver = MaxwellDriver(sp, CFL=problem['cfl'])
     driver['Ez'][:] = resonant_cavity_ez_field(sp.x, sp.y, 0)
     
     # Set the time integrator
-    driver.run(problem_data['n_steps'] * driver.dt)
+    driver.run(problem['n_steps'] * driver.dt)
     print(f"\n🌐 Tempo final da simulação: {driver.timeIntegrator.time:.2f} s")
     
     ez_expected = resonant_cavity_ez_field(sp.x, sp.y, driver.timeIntegrator.time)

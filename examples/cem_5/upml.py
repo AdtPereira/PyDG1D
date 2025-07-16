@@ -182,12 +182,9 @@ def test_with_L2_error(problem) -> None:
     # O cálculo da distância retorna um array com a mesma forma.
     distances = np.sqrt((sp.x - probe[0])**2 + (sp.y - probe[1])**2 + (sp.z - probe[2])**2)
     
-    # MUDANÇA 2: Encontramos o índice "plano" do nó mais próximo.
-    flat_probe_index = np.argmin(distances)
-    
     # MUDANÇA 3: Usamos unravel_index para converter o índice plano em índices 2D 
     # (índice_do_nó_local, índice_do_elemento) que correspondem à forma de sp.x.
-    node_idx, elem_idx = np.unravel_index(flat_probe_index, sp.x.shape)
+    node_idx, elem_idx = np.unravel_index(np.argmin(distances), sp.x.shape)
     
     # MUDANÇA 4: Inicializamos a estrutura de dados da sonda
     probe_data = {'time': [], 'Ez_probe': []}

@@ -81,61 +81,82 @@ from maxwell.integrators.LSERK4 import *
 
 PROBLEM = {
     'DIM': 2,
-    'description': 'Estruturas de dados para o problema de Maxwell 2D',
+    'description': 'Teste de convergência do esquema DGTD bidimensional TMz. Hesthaven, p. 205',
     'name': 'Maxwell2D',
     'folder': 'cem_6',
     'dg': {
-        'n_order': 2,               # Ordem de interpolação polinomial
+        'n_order': 4,               # Ordem de interpolação polinomial
         'flux_type': 'Upwind',      # 'Upwind' or 'Centered'
         'cfl': 1.0,                 # Número de Courant-Friedrichs-Lewy
         'bc': "PEC",                # Condição de contorno: 'PEC', 'SMA'  or 'Periodic
         't_final': 10.0,            # Tempo final da simulação
     },
     'domain': {
-        'name': 'SquareK14',        # Nome do domínio
+        'name': 'SquareK16',        # Nome do domínio
         'type': 'square',           # Tipo de domínio: 'square' ou 'cubic'
-        'h': 4.0,                   # Tamanho máximo do elemento da malha
-        'Lx': 1.0,                  # Semi-lados do domínio externo na direção x
-        'Ly': 1.0,                  # Semi-lados do domínio externo na direção y
+        'h': 1.0,                   # Tamanho máximo do elemento da malha
+        'Lx': 2.0,                  # Semi-lados do domínio externo na direção x
+        'Ly': 2.0,                  # Semi-lados do domínio externo na direção y
+    },
+    'pml': {
+        'type': 'uniaxial', 
+        'L': 1.0,                   # Largura da camada da PML
+        'pml_order': 2,             # Ordem polinomial da PML
+        'R': 1E-4                   # Coeficiente de reflexão na interface da PML
     },
 }
 
 # Criação da pasta de saída
 OUTPUTS = (Path(__file__).parent.parent.parent / 'examplesData' / 'outputs' / PROBLEM["folder"]).resolve()
+DATAFILE_PATH = os.path.join(OUTPUTS, f"{PROBLEM['domain']['name']}_pyData")
 OUTPUTS.mkdir(parents=True, exist_ok=True)
+os.makedirs(DATAFILE_PATH, exist_ok=True)
+
+
+def resonant_cavity_ez_field(x, y, t):
+    ''' Hesthaven's book p. 205 '''
+    m = 1
+    n = 1 
+    n_pi = np.pi * n
+    m_pi = np.pi * m
+    w = np.pi * np.sqrt(m**2 + n**2)
+    return np.sin(m_pi*x) * np.sin(n_pi*y) * np.cos(w*t)
+
+
+def resonant_cavity_hx_field(x, y, t):
+    ''' Hesthaven's book p. 205 '''
+    m = 1
+    n = 1 
+    n_pi = np.pi * n
+    m_pi = np.pi * m
+    w = np.pi * np.sqrt(m**2 + n**2)
+    return - (n_pi / w) * np.sin(m_pi*x) * np.cos(n_pi*y) * np.sin(w*t)
+
+def resonant_cavity_hy_field(x, y, t):
+    ''' Hesthaven's book p. 205 '''
+    m = 1
+    n = 1 
+    n_pi = np.pi * n
+    m_pi = np.pi * m
+    w = np.pi * np.sqrt(m**2 + n**2)
+    return (m_pi / w) * np.cos(m_pi*x) * np.sin(n_pi*y) * np.sin(w*t)
 
 
 def create_mesh_object(problem: dict, filename: str) -> Mesh2D:    
     try:
         with GmshMeshReader(filename, problem_dim=problem['DIM']) as reader:
-            # 1. Ler a malha global e os dados por grupo físico.
             reader.read_global_mesh()
-            physical_groups = reader.get_physical_group_data()
+            physical_groups = reader.get_physical_group_data()            
+            graphicsFilePath = os.path.join(OUTPUTS, f"{PROBLEM['name']}_{PROBLEM['domain']['name']}")                       
             
-            print(f"\n=== {len(physical_groups.keys())} Grupos Físicos Coletados ===")
-            print(f"Grupos Físicos (Gmsh): {gmsh.model.getPhysicalGroups()}")
-            print(f"Grupos Físicos (Dict): {physical_groups.keys()}")
-
-
-            for name, data in physical_groups.items():
-                print(f"Grupo '{name}': {data['EToV'].shape[0]} elementos.")
-
-            # 2. Cria os objetos de malha usando os dados lidos do reader
-            graphicsFilePath = os.path.join(OUTPUTS, f"{PROBLEM['name']}_{PROBLEM['domain']['name']}")    
-
             mesh2D = Mesh2D(vx=reader.vx, vy=reader.vy, EToV=reader.EToV,
-                            physical_groups=physical_groups, boundary_label=problem['dg']['bc'])
+                            physical_groups=physical_groups,
+                            boundary_label=problem['dg']['bc'])
             
             pltMesh = Mesh2DVisualizer(mesh2D.vx, mesh2D.vy, mesh2D.EToV, 
                                        physical_groups=mesh2D.physical_groups,
                                        boundary_label=problem['dg']['bc'],
                                        filePath=graphicsFilePath)
-            
-            # Gráfico 1: Malha completa com numeração
-            pltMesh.vertices_and_elements(title=f"Malha Completa - {problem['domain']['name']}")
-            
-            # Gráfico 2: Mapa de grupos físicos com cores
-            pltMesh.gmsh_physical_group_map(physical_groups, title=f"Mapa de Grupos Físicos - {problem['domain']['name']}")
             
             print(f"\n=== Malha criada com {mesh2D.number_of_vertices()} vértices e {mesh2D.number_of_elements()} elementos. ===")
             return mesh2D, pltMesh
@@ -151,97 +172,111 @@ def create_mesh_object(problem: dict, filename: str) -> Mesh2D:
         return
 
 
-def create_data_structure(problem: dict, pltMesh: Mesh2DVisualizer, dg: Maxwell2D) -> None:
-    """
-    Cria a estrutura de dados para o problema de Maxwell 2D.
+def save_data_to_file(problem: dict, mesh2D: Mesh2D, dg: Maxwell2D) -> None:
+    """Salva os dados da malha em um arquivo .npy."""
+    try:
 
-    Parâmetros
-    ----------
-    problem : dict
-        Dicionário com os parâmetros do problema.
+        # mesh2D
+        np.save(os.path.join(DATAFILE_PATH, "vx.npy"), mesh2D.vx)
+        np.save(os.path.join(DATAFILE_PATH, "vy.npy"), mesh2D.vy)
+        np.save(os.path.join(DATAFILE_PATH, "EToV.npy"), mesh2D.EToV)
+        EToE, EToF = mesh2D.connectivityMatrices()
+        np.save(os.path.join(DATAFILE_PATH, "EToE.npy"), EToE)
+        np.save(os.path.join(DATAFILE_PATH, "EToF.npy"), EToF)
 
-    Retorna
-    -------
-    None
-    """
+        # Mapeamento DG-FEM
+        np.save(os.path.join(DATAFILE_PATH, "vmapM.npy"), dg.vmapM)
+        np.save(os.path.join(DATAFILE_PATH, "vmapP.npy"), dg.vmapP)
+        np.save(os.path.join(DATAFILE_PATH, "vmapB.npy"), dg.vmapB)        
+        np.save(os.path.join(DATAFILE_PATH, "mapB.npy"), dg.mapB)
+
+        # print(f"vmapM: {dg.vmapM.shape}: \n{dg.vmapM}")
+        # print(f"vmapP: {dg.vmapP.shape}: \n{dg.vmapP}")
+
+        # Mapeamento de interface
+        np.save(os.path.join(DATAFILE_PATH, "vmapI_tfz_scatter.npy"), dg.vmapI[102][201])
+        np.save(os.path.join(DATAFILE_PATH, "vmapI_tfz_total.npy"), dg.vmapI[102][202])
+        # print(f'\n vmapI_tfz_scatter = vmapI[102][201]: {dg.vmapI[102][201]}')
+
+        print(f"📁 Dados salvos com sucesso em {DATAFILE_PATH}.")
+        
     
-    print(f"\n🔎 Discretização espacial criada com ordem {dg.n_order}, {dg.mesh.number_of_elements()} elementos e {dg.number_of_nodes_per_element()} pontos por elemento.")
-    print(f"\n🔎 Criando estrutura de dados para o problema: {problem['name']}...")
-
-    print(f"\n=== Physical Groups (Dict): {dg.mesh.physical_groups.keys()} ===")
-    for key, value in dg.mesh.physical_groups.items():
-        print(f"  - Grupo '{value['name']}' (Tag {key}): {value['vx'].shape[0]} vértices, {value['EToV'].shape[0]} elementos de dimensão {value['dim']}.")
-
-    EToE, EToF = dg.mesh.connectivityMatrices()  
-    print(f"\nEToV (Dim: {dg.mesh.EToV.shape}): \n", dg.mesh.EToV)
-    print(f"\nEToE (Dim: {EToE.shape}): \n", EToE)
-    print(f"\nEToF (Dim: {EToF.shape}): \n", EToF)
-
-    # EToG = dg.mesh.connectivityElementsToPhysicalGroups()
-    # FToG = dg.mesh.connectivityFacesToPhysicalGroups()
-    print(f"\nEToG (Dim: {dg.mesh.EToG.shape}): \n", dg.mesh.EToG)
-    print(f"\nFToG (Dim: {dg.mesh.FToG.shape}): \n", dg.mesh.FToG)
-
-    print(f"\n vmapM (Dim: {dg.vmapM.shape}): \n", dg.vmapM)
-    # vmapM_2D = dg.vmapM.reshape((dg.n_fp, dg.n_faces, dg.mesh.number_of_elements()), order='F')
-    # display_3d_matrices(vmapM_2D, title="vmapM")
-
-    print(f"\n vmapP (Dim: {dg.vmapP.shape}): \n", dg.vmapP)
-    # vmapP_2D = dg.vmapP.reshape((dg.n_fp, dg.n_faces, dg.mesh.number_of_elements()), order='F')
-    # display_3d_matrices(vmapP_2D, title="vmapP")
-
-    print(f"\n vmapB (Dim: {dg.vmapB.shape}): \n", dg.vmapB)
-    print(f"\n mapB (Dim: {dg.mapB.shape}): \n", dg.mapB)  
+    except Exception as e:
+        print(f"❌ Erro ao salvar os dados: {e}")
+        import traceback
+        traceback.print_exc() # Imprime o traceback completo para depuração
 
 
-def create_interface_data_structure(problem: dict, pltMesh: Mesh2DVisualizer, dg: Maxwell2D) -> None:
+def probe_analysis(problem: dict, dg: Maxwell2D) -> MaxwellDriver:
     """
-    Cria a estrutura de dados para as interfaces do problema de Maxwell 2D.
-
-    Parâmetros
-    ----------
-    problem : dict
-        Dicionário com os parâmetros do problema.
-
-    Retorna
-    -------
-    None
+    Inicializa o solver DG, executa a simulação e avalia os campos em um ponto de
+    observação (sonda), comparando com a solução analítica de forma otimizada.
     """
-    
-    # Bloco para inspecionar os novos mapeamentos de interface
-    print(f"\n--- Inspecionando Mapeamentos de Interface (vmap_int e map_int) ---")
+    cfl = problem['dg']['cfl']
+    final_time = problem['dg']['t_final']
+    driver = MaxwellDriver(dg, timeIntegratorType='LSERK4', CFL=cfl)
+    driver['Ez'][:] = resonant_cavity_ez_field(dg.x, dg.y, 0)
+    print(f"\n🌐 Driver iniciado com discretização temporal {driver.dt:.2e} s.")
 
-    # Verifica se os mapeamentos foram criados
-    if hasattr(dg, 'vmap_int') and dg.vmapI:
-        # Itera sobre cada interface (ex: outerBoundary, tfzInterface)
-        for interface_tag, domain_data in dg.vmapI.items():
-            iface_name = dg.mesh.physical_groups.get(interface_tag, {}).get('name', 'N/A')
-            print(f"\n➡️ Interface '{iface_name}' (Tag: {interface_tag})")
+    # --- 1. Definição da Sonda (Probe) ---
+    probe_point = (0.5, 0.5)
+    distances = np.sqrt((dg.x - probe_point[0])**2 + (dg.y - probe_point[1])**2)
+    node_idx, elem_idx = np.unravel_index(np.argmin(distances), dg.x.shape)
+    probe_coords = (dg.x[node_idx, elem_idx], dg.y[node_idx, elem_idx])
+    print(f"\n✔️ Sonda posicionada em (x,y) = ({probe_coords[0]:.4f}, {probe_coords[1]:.4f})")
 
-            # Itera sobre cada domínio 2D adjacente a essa interface
-            for domain_tag, nodes_array in domain_data.items():
-                domain_name = dg.mesh.physical_groups.get(domain_tag, {}).get('name', 'N/A')
-                print(f"  - Lado do Domínio '{domain_name}' (Tag: {domain_tag}):")
-                
-                # Exibe os nós (vmap_int)
-                print(f"    - vmap_int (Dim: {nodes_array.shape}):\n      {nodes_array}")
+    # --- 2. Estruturas para Coleta e Plotagem ---
+    # Dicionário para armazenar os dados da sonda de forma organizada
+    probe_data = {
+        'time': [],
+        'Ez': {'dg': [], 'an': []},
+        'Hx': {'dg': [], 'an': []},
+        'Hy': {'dg': [], 'an': []}
+    }
 
-                # Exibe os índices (map_int)
-                indices_array = dg.mapI[interface_tag][domain_tag]
-                print(f"    - map_int (Dim: {indices_array.shape}):\n      {indices_array}")
+    # Dicionário para mapear chaves de campo para suas funções analíticas
+    analytical_func = {
+        'Ez': resonant_cavity_ez_field,
+        'Hx': resonant_cavity_hx_field,
+        'Hy': resonant_cavity_hy_field
+    }
 
-    # A asserção para a fronteira externa (tag 101) também precisa ser atualizada.
-    # Ela agora verifica se os nós do único domínio adjacente à fronteira 101
-    # correspondem aos nós de fronteira globais em vmapB.
-    if 101 in dg.vmapI:
-        # Pega a tag do único domínio adjacente à fronteira 101
-        outer_domain_tag = list(dg.vmapI[101].keys())[0]
-        assert np.array_equal(dg.vmapI[101][outer_domain_tag], dg.vmapB), "vmap_int[101] e vmapB devem ser iguais."
-        assert np.array_equal(dg.mapI[101][outer_domain_tag], dg.mapB), "map_int[101] e mapB devem ser iguais."
-        print("\n✅ Asserções para a fronteira externa (Tag 101) verificadas com sucesso!")
+    # --- 3. Loop Temporal e Coleta de Dados ---
+    timeRange = np.arange(0.0, final_time, driver.dt)
+    for t in timeRange:
+        driver.step()
+        current_time = driver.timeIntegrator.time
+        probe_data['time'].append(current_time)
+        for field, func in analytical_func.items():
+            probe_data[field]['dg'].append(driver[field][node_idx, elem_idx])
+            probe_data[field]['an'].append(func(probe_coords[0], probe_coords[1], current_time))
 
-    # Plotar os pontos de colocação do solver
-    pltMesh.collocation_points(dg, map_type='M', title='Pontos de Colocação (vmapM)')
+    print(f"\n🌐 Tempo final da simulação: {driver.timeIntegrator.time:.1f} s.")
+
+    # --- 4. Plotagem Otimizada dos Dados da Sonda ---
+    fig, axes = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+    fig.suptitle(f'2D PEC Cavity Fields at (x,y)=({probe_coords[0]:.2f}, {probe_coords[1]:.2f})', fontsize=12)
+
+    # Lista de configurações para cada subplot, evitando código repetido
+    plot_configs = [
+        {'key': 'Ez', 'title': '$E_z$', 'ylabel': '$E_z$ (V/m)'},
+        {'key': 'Hx', 'title': '$H_x$', 'ylabel': '$H_x$ (A/m)'},
+        {'key': 'Hy', 'title': '$H_y$', 'ylabel': '$H_y$ (A/m)'}
+    ]
+
+    # Loop para criar os subplots
+    for ax, config in zip(axes, plot_configs):
+        ax.plot(probe_data['time'], probe_data[config['key']]['an'], 'b', label='Analítica', linewidth=1.0)
+        ax.plot(probe_data['time'], probe_data[config['key']]['dg'], 'r--', label='DG-FEM', linewidth=1.0)
+        ax.set_title(config['title'])
+        ax.set_ylabel(config['ylabel'])
+        ax.grid(True)
+        ax.legend(loc='upper right')
+
+    axes[-1].set_xlabel('Tempo (s)') # Adiciona rótulo apenas no último subplot
+    plt.tight_layout(rect=[0, 0, 1, 0.96]) 
+
+    return driver
 
 
 def main() -> None:
@@ -250,7 +285,8 @@ def main() -> None:
     
     # 1. Criar a malha e o visualizador
     gmshFileName = os.path.join(OUTPUTS, f"{PROBLEM['name']}_{PROBLEM['domain']['name']}.msh")
-    SquareK14Domain(gmshFileName) # Se precisar criar o arquivo .msh
+    SquareK16Domain(PROBLEM, gmshFileName) # Se precisar criar o arquivo .msh    
+    
     mesh2D, pltMesh = create_mesh_object(PROBLEM, gmshFileName)
     if mesh2D is None or pltMesh is None:
         print("Erro ao criar a malha ou o visualizador. Verifique os logs.")
@@ -259,11 +295,15 @@ def main() -> None:
     # 2. Definir a discretização espacial usando DG2D
     dg = Maxwell2D(n_order=PROBLEM['dg']['n_order'], mesh=mesh2D, fluxType=PROBLEM['dg']['flux_type'])
 
-    # 3. Criar a estrutura de dados para o problema
-    create_data_structure(PROBLEM, pltMesh, dg)
+    # Plotar os pontos de colocação do solver
+    # pltMesh.collocation_points(dg, map_type='M', title='Pontos de Colocação (vmapM)')
 
-    # 4. Criar a estrutura de dados para as interfaces
-    create_interface_data_structure(PROBLEM, pltMesh, dg)
+    # 3. Salvar os dados da malha em um arquivo .npy
+    # save_data_to_file(PROBLEM, mesh2D, dg)
+
+    # 4. Inicializar o solver DG
+    driver = probe_analysis(PROBLEM, dg)
+
 
 if __name__ == '__main__':
     main()

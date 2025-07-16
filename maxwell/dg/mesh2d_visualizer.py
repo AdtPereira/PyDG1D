@@ -7,7 +7,6 @@ from matplotlib.collections import LineCollection
 from .mesh2d import Mesh2D
 from .dg2d import Maxwell2D
 
-# NOVA CLASSE FILHA: Responsável pela visualização
 class Mesh2DVisualizer(Mesh2D):
     def __init__(self, vx, vy, EToV, physical_groups=None, boundary_label="PEC", filePath=None):
         # Chama o construtor da classe pai (Mesh2D) para inicializar os dados
@@ -20,6 +19,7 @@ class Mesh2DVisualizer(Mesh2D):
         self.title_font_size = 10                   # Tamanho da fonte do título do gráfico
         self.element_label_font_size = 10           # Tamanho da fonte dos rótulos dos elementos
         self.node_label_font_size = 7               # Tamanho da fonte dos rótulos dos nós
+        self.marker_size = 3                        # Tamanho dos marcadores dos nós
         self.node_marker_color = 'red'              # Cor dos marcadores dos nós
         self.element_label_color = 'darkslateblue'  # Cor dos rótulos dos elementos
 
@@ -34,7 +34,7 @@ class Mesh2DVisualizer(Mesh2D):
         ax.triplot(triangulation, 'k-', lw=1, label='Elementos')
 
         if show_vertices:
-            ax.plot(self.vx, self.vy, 'o', markersize=4, label='Vértices')
+            ax.plot(self.vx, self.vy, 'o', markersize=self.marker_size, label='Vértices')
 
             # Itera sobre o número total de vértices
             for i in range(self.number_of_vertices()):
@@ -137,7 +137,7 @@ class Mesh2DVisualizer(Mesh2D):
         return centroids_x, centroids_y
     
     
-    def _plot_collocation_data(self, ax, dg, map_type, shift_distance, marker_label):
+    def _plot_interface_dofs(self, ax, dg, map_type, shift_distance, marker_label):
         """Método auxiliar para plotar os nós e os índices dos pontos de colocação."""
         vmap_to_plot = dg.vmapM if map_type == 'M' else dg.vmapP
         vmap_reshaped = vmap_to_plot.reshape((dg.n_fp, dg.n_faces, self.number_of_elements()), order='F')
@@ -169,7 +169,45 @@ class Mesh2DVisualizer(Mesh2D):
                     ax.text(text_x, text_y, str(global_idx), fontsize=self.node_label_font_size, color='black', fontweight='bold', ha='center', va='center')
         
         if marker_x_coords:
-            ax.plot(marker_x_coords, marker_y_coords, 'o', markersize=5, color=self.node_marker_color, alpha=0.8, linestyle='none', label=marker_label)
+            ax.plot(marker_x_coords, marker_y_coords, 'o', markersize=self.marker_size, color=self.node_marker_color, alpha=0.8, linestyle='none', label=marker_label)
+
+
+    def _plot_internal_dofs(self, ax, dg, shift_distance):
+        """Método auxiliar para plotar os nós e os índices dos pontos de colocação INTERNOS."""
+        x_coords_flat = dg.x.ravel('F')
+        y_coords_flat = dg.y.ravel('F')
+        
+        # Identifica os índices dos nós que não estão nas faces (vmapM)
+        face_indices = set(dg.vmapM.flatten())
+        all_indices = set(range(len(x_coords_flat)))
+        internal_indices = sorted(list(all_indices - face_indices))
+        
+        if not internal_indices:
+            return # Não há pontos internos para plotar
+
+        # Calcula os centroides para o deslocamento do texto
+        centroids_x = np.array([np.mean(self.vx[self.EToV[k]]) for k in range(self.number_of_elements())])
+        centroids_y = np.array([np.mean(self.vy[self.EToV[k]]) for k in range(self.number_of_elements())])
+        
+        marker_x_coords, marker_y_coords = [], []
+
+        for global_idx in internal_indices:
+            # Encontra a qual elemento 'k' o ponto pertence
+            k = global_idx // dg.number_of_nodes_per_element()
+            
+            px, py = x_coords_flat[global_idx], y_coords_flat[global_idx]
+            marker_x_coords.append(px)
+            marker_y_coords.append(py)
+            
+            # Calcula o vetor do ponto ao centroide do elemento para deslocar o texto
+            centroid_x, centroid_y = centroids_x[k], centroids_y[k]
+            vec_x, vec_y = centroid_x - px, centroid_y - py
+            norm = np.sqrt(vec_x**2 + vec_y**2) + 1e-9
+            text_x, text_y = px + shift_distance * (vec_x / norm), py + shift_distance * (vec_y / norm)
+            
+            ax.text(text_x, text_y, str(global_idx), fontsize=self.node_label_font_size, color='darkgreen', ha='center', va='center')
+        
+        ax.plot(marker_x_coords, marker_y_coords, 's', markersize=self.marker_size, color='green', alpha=0.8, linestyle='none', label='Nós Internos')
 
 
     def _plot_physical_group_edges(self, ax):
@@ -237,7 +275,8 @@ class Mesh2DVisualizer(Mesh2D):
 
         # Chama os métodos auxiliares para realizar a plotagem
         self._plot_element_indices(ax)
-        self._plot_collocation_data(ax, dg, map_type, shift_distance, marker_label)
+        self._plot_interface_dofs(ax, dg, map_type, shift_distance, marker_label)
+        self._plot_internal_dofs(ax, dg, shift_distance)
 
         # Finaliza a configuração do gráfico
         ax.set_title(dynamic_title, fontsize=self.title_font_size, fontweight='bold')
